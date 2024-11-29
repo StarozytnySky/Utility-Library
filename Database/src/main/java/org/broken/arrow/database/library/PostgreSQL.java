@@ -9,7 +9,12 @@ import org.broken.arrow.logging.library.Logging;
 import org.broken.arrow.logging.library.Validate;
 
 import javax.annotation.Nonnull;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.SQLRecoverableException;
 import java.util.List;
 
 import static org.broken.arrow.logging.library.Logging.of;
@@ -106,8 +111,10 @@ public class PostgreSQL extends Database {
 	public Connection setupConnection() throws SQLException {
 		Connection connection;
 
-		if (isHikariAvailable && this.hikari != null) {
-			connection = this.hikari.getConnection();
+		if (isHikariAvailable) {
+			if (this.hikari == null)
+				this.hikari = new HikariCP(this, this.driver);
+			connection = this.hikari.getConnection(startSQLUrl);
 		} else {
 			String databaseName = preferences.getDatabaseName();
 			String hostAddress = preferences.getHostAddress();
@@ -130,7 +137,7 @@ public class PostgreSQL extends Database {
 		String user = preferences.getUser();
 		String password = preferences.getPassword();
 
-		try (Connection createDatabase = DriverManager.getConnection(startSQLUrl + hostAddress + ":" + port + "/?useSSL=false&useUnicode=yes&characterEncoding=UTF-8", user, password)) {
+		try (Connection createDatabase = DriverManager.getConnection(startSQLUrl + hostAddress + ":" + port + "/?useSSL=false&useUnicode=yes&characterEncoding=UTF-8", user, password);) {
 			try (PreparedStatement checkStatement = createDatabase.prepareStatement("SELECT 1 FROM pg_database WHERE datname = ?")) {
 				checkStatement.setString(1, databaseName);
 				try (ResultSet resultSet = checkStatement.executeQuery()) {

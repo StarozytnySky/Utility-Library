@@ -19,9 +19,10 @@ import static org.broken.arrow.logging.library.Logging.of;
 
 public class H2DB extends Database {
 	private final Logging log = new Logging(H2DB.class);
+
 	private final boolean isHikariAvailable;
 	private final File dbFile;
-	private final HikariCP hikari;
+	private HikariCP hikari;
 	private boolean hasCastException;
 
 	public H2DB(@Nonnull final String parent, @Nonnull final String child) {
@@ -38,25 +39,13 @@ public class H2DB extends Database {
 
 		this.isHikariAvailable = isHikariAvailable(hikariClazzPath);
 		this.loadDriver("org.h2.Driver");
-
-		if (isHikariAvailable) {
-			this.hikari = new HikariCP(this, "org.h2.Driver", "jdbc:h2:");
-		} else {
-			this.hikari = null;
-		}
 		connect();
 	}
 
 	@Override
 	public Connection connect() {
 		try {
-			if (!hasCastException) {
-				if (isHikariAvailable && this.hikari != null) {
-					return this.hikari.getConnection();
-				} else {
-					return setupConnection();
-				}
-			}
+			return setupConnection();
 		} catch (SQLException e) {
 			this.hasCastException = true;
 			log.log(e, () -> of("Fail to connect to H2 database. With the file path: " + this.dbFile));
@@ -88,8 +77,16 @@ public class H2DB extends Database {
 	}
 
 	public Connection setupConnection() throws SQLException {
-		String jdbcUrl = "jdbc:h2:" + dbFile.getPath();
-		return DriverManager.getConnection(jdbcUrl);
+		Connection connection;
+
+		if (this.isHikariAvailable) {
+			if (this.hikari == null) hikari = new HikariCP(this, "org.h2.Driver");
+			connection = this.hikari.getFileConnection("jdbc:h2:");
+		} else {
+			connection = DriverManager.getConnection("jdbc:h2:" + this.dbFile.getPath());
+		}
+		hasCastException = false;
+		return connection;
 	}
 
 	@Override

@@ -242,6 +242,7 @@ public abstract class Database {
 	 */
 	@Nullable
 	public <T extends ConfigurationSerializable> List<LoadDataWrapper<T>> loadAll(@Nonnull final String tableName, @Nonnull final Class<T> clazz) {
+
 		TableWrapper tableWrapper = this.getTable(tableName);
 		if (tableWrapper == null) {
 			this.printFailFindTable(tableName);
@@ -251,21 +252,19 @@ public abstract class Database {
 		final List<LoadDataWrapper<T>> loadDataWrappers = new ArrayList<>();
 		final SqlCommandComposer sqlCommandComposer = new SqlCommandComposer(new RowWrapper(tableWrapper), this);
 		Validate.checkNotNull(tableWrapper.getPrimaryRow(), "Primary column should not be null");
-		String query = sqlCommandComposer.selectTable();
 
-		try (Connection connection = this.openConnection();
-		     PreparedStatement preparedStatement = connection.prepareStatement(query);
-		     ResultSet resultSet = preparedStatement.executeQuery()) {
-
-			while (resultSet.next()) {
-				Map<String, Object> dataFromDB = this.getDataFromDB(resultSet, tableWrapper);
-				T deserialize = this.methodReflectionUtils.invokeDeSerializeMethod(clazz, "deserialize", dataFromDB);
-				Object primaryValue = dataFromDB.get(tableWrapper.getPrimaryRow().getColumnName());
-				loadDataWrappers.add(new LoadDataWrapper<>(primaryValue, deserialize));
+		this.getPreparedStatement(sqlCommandComposer.selectTable(), statementWrapper -> {
+			try (ResultSet resultSet = statementWrapper.getPreparedStatement().executeQuery()) {
+				while (resultSet.next()) {
+					Map<String, Object> dataFromDB = this.getDataFromDB(resultSet, tableWrapper);
+					T deserialize = this.methodReflectionUtils.invokeDeSerializeMethod(clazz, "deserialize", dataFromDB);
+					Object primaryValue = dataFromDB.get(tableWrapper.getPrimaryRow().getColumnName());
+					loadDataWrappers.add(new LoadDataWrapper<>(primaryValue, deserialize));
+				}
+			} catch (SQLException e) {
+				log.log(Level.WARNING, e, () -> of("Could not load all data for this table '" + tableName + "'. Check the stacktrace."));
 			}
-		} catch (SQLException e) {
-			log.log(Level.WARNING, e, () -> of("Could not load all data for this table '" + tableName + "'. Check the stacktrace."));
-		}
+		});
 		return loadDataWrappers;
 	}
 
@@ -492,24 +491,28 @@ public abstract class Database {
 
 	public boolean doRowExist(@Nonnull String tableName, @Nonnull Object primaryKeyValue) {
 		TableWrapper tableWrapper = this.getTable(tableName);
+		Connection connection = this.openConnection();
+		if (connection == null) {
+			this.printFailToOpen();
+			return false;
+		}
 		if (tableWrapper == null) {
 			this.printFailFindTable(tableName);
 			return false;
 		}
-		Validate.checkNotNull(tableWrapper.getPrimaryRow(), "Could not find primary column for table " + tableName);
+		Validate.checkNotNull(tableWrapper.getPrimaryRow(), "Could not find  primary column for table " + tableName);
 		String primaryColumn = tableWrapper.getPrimaryRow().getColumnName();
 		Validate.checkNotNull(primaryKeyValue, "Could not find column for " + primaryColumn + ". Because the column value is null.");
+		ResultSet resultSet = null;
 
 		final SqlCommandComposer sqlCommandComposer = new SqlCommandComposer(new RowWrapper(tableWrapper), this);
-		String query = sqlCommandComposer.selectRow(primaryKeyValue.toString());
-
-		try (Connection connection = this.openConnection();
-		     PreparedStatement preparedStatement = connection.prepareStatement(query);
-		     ResultSet resultSet = preparedStatement.executeQuery()) {
-
+		try (PreparedStatement preparedStatement = connection.prepareStatement(sqlCommandComposer.selectRow(primaryKeyValue + ""))) {
+			resultSet = preparedStatement.executeQuery();
 			return resultSet.next();
 		} catch (SQLException e) {
-			log.log(e, () -> of("Could not search for the row with value '" + primaryKeyValue + "' from table '" + tableName + "'"));
+			log.log(e, () -> of("Could not search for your the row with this value '" + primaryKeyValue + "' from this table '" + tableName + "'"));
+		} finally {
+			this.close(null, resultSet);
 		}
 		return false;
 	}
@@ -755,8 +758,7 @@ public abstract class Database {
 
 		if ((!columnsIsEmpty || shallUpdate) && this.doRowExist(rowWrapper.getTableWrapper().getTableName(), rowWrapper.getPrimaryKeyValue()))
 			commandComposer.updateTable(rowWrapper.getPrimaryKeyValue());
-		else
-			commandComposer.replaceIntoTable();
+		else commandComposer.replaceIntoTable();
 
 		return commandComposer;
 	}

@@ -68,8 +68,10 @@ public class MySQL extends Database {
 		this.driver = "com.mysql.cj.jdbc.Driver";
 		if (createDatabase) createMissingDatabase();
 		if (isHikariAvailable) {
-			this.hikari = new HikariCP(this, this.driver, "jdbc:mysql://");
+			this.hikari = new HikariCP(this, this.driver);
 		} else this.hikari = null;
+
+		connect();
 	}
 
 	@Override
@@ -78,11 +80,7 @@ public class MySQL extends Database {
 		Connection connection = null;
 		try {
 			if (!hasCastException) {
-				if (isHikariAvailable && this.hikari != null) {
-					connection = this.hikari.getConnection();
-				} else {
-					connection = setupConnection();
-				}
+				connection = this.setupConnection();
 			}
 			hasCastException = false;
 		} catch (SQLRecoverableException exception) {
@@ -106,7 +104,7 @@ public class MySQL extends Database {
 		Connection connection;
 
 		if (isHikariAvailable && this.hikari != null) {
-			connection = this.hikari.getConnection();
+			connection = this.hikari.getConnection(startSQLUrl);
 		} else {
 			String databaseName = mysqlPreference.getDatabaseName();
 			String hostAddress = mysqlPreference.getHostAddress();
