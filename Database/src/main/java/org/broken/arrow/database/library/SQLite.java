@@ -18,90 +18,107 @@ import java.util.List;
 import static org.broken.arrow.logging.library.Logging.of;
 
 public class SQLite extends Database {
-    private final Logging log = new Logging(SQLite.class);
-    private File dbFile;
-    private final String parent;
-    private final String child;
-    private final boolean isHikariAvailable;
-    private HikariCP hikari;
-    private boolean hasCastException = false;
+	private final Logging log = new Logging(SQLite.class);
+	private final File dbFile;
+	private final boolean isHikariAvailable;
+	private final HikariCP hikari;
+	private boolean hasCastException = false;
 
-    public SQLite(@Nonnull final String parent) {
-        this(parent, (String) null);
-    }
+	/**
+	 * Constructs a new SQLite database instance with the given file path.
+	 *
+	 * @param parent The parent directory or file path.
+	 */
+	public SQLite(@Nonnull final String parent) {
+		this(parent, "database.db");
+	}
 
-    public SQLite(@Nonnull final String parent, @Nullable final String child) {
-        this("com.zaxxer.hikari.HikariConfig", parent, child);
-    }
+	/**
+	 * Constructs a new SQLite database instance with the given parent and child paths.
+	 *
+	 * @param parent The parent directory.
+	 * @param child  The child file name.
+	 */
+	public SQLite(@Nonnull final String parent, @Nullable final String child) {
+		this("com.zaxxer.hikari.HikariConfig", parent, child);
+	}
 
-    public SQLite(@Nonnull final String hikariClazzPath, @Nonnull final String parent, @Nullable final String child) {
-        this(hikariClazzPath, new DBPath(parent, child));
-    }
+	/**
+	 * Constructs a new SQLite database instance with the given HikariCP class path, parent, and child.
+	 *
+	 * @param hikariClazzPath The HikariCP class path.
+	 * @param parent          The parent directory.
+	 * @param child           The child file name.
+	 */
+	public SQLite(@Nonnull final String hikariClazzPath, @Nonnull final String parent, @Nullable final String child) {
+		this(hikariClazzPath, new DBPath(parent, child));
+	}
 
-    private SQLite(@Nonnull final String hikariClazzPath, DBPath dbPath) {
-        super(new ConnectionSettings(dbPath.getDbFile().getPath()));
-        this.dbFile = dbPath.getDbFile();
-        this.parent = "";
-        this.child = "";
-        this.isHikariAvailable = isHikariAvailable(hikariClazzPath);
-        this.loadDriver("org.sqlite.JDBC");
-        connect();
-    }
+	private SQLite(@Nonnull final String hikariClazzPath, DBPath dbPath) {
+		super(new ConnectionSettings(dbPath.getDbFile().getPath()));
+		this.dbFile = dbPath.getDbFile();
+		this.isHikariAvailable = isHikariAvailable(hikariClazzPath);
+		this.loadDriver("org.sqlite.JDBC");
 
-    @Override
-    public Connection connect() {
-        try {
-            return setupConnection();
-        } catch (final SQLException ex) {
-            this.hasCastException = true;
-            log.log(ex, () -> of("Fail to connect to SQLITE database"));
-        }
-        return null;
-    }
+		if (isHikariAvailable) {
+			this.hikari = new HikariCP(this, "org.sqlite.JDBC", "jdbc:sqlite:");
+		} else {
+			this.hikari = null;
+		}
 
-    @Override
-    protected void batchUpdate(@Nonnull final List<SqlCommandComposer> sqlComposer, @Nonnull final TableWrapper... tableWrappers) {
-        this.batchUpdate(sqlComposer, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-    }
+		connect();
+	}
 
-    public Connection setupConnection() throws SQLException {
-        Connection connection;
+	@Override
+	public Connection connect() {
+		try {
+			if (!hasCastException) {
+				if (isHikariAvailable && this.hikari != null) {
+					return this.hikari.getConnection();
+				} else {
+					return setupConnection();
+				}
+			}
+		} catch (SQLException ex) {
+			this.hasCastException = true;
+			log.log(ex, () -> of("Failed to connect to SQLite database"));
+		}
+		return null;
+	}
 
-        if (this.hikari == null)
-            hikari = new HikariCP(this, "org.sqlite.JDBC");
-        if (this.isHikariAvailable)
-            connection = this.hikari.getFileConnection("jdbc:sqlite:");
-        else
-            connection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getPath());
-        hasCastException = false;
-        return connection;
-    }
+	@Override
+	protected void batchUpdate(@Nonnull final List<SqlCommandComposer> sqlComposer, @Nonnull final TableWrapper... tableWrappers) {
+		this.batchUpdate(sqlComposer, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+	}
 
-    @Override
-    public boolean isHasCastException() {
-        return this.hasCastException;
-    }
+	public Connection setupConnection() throws SQLException {
+		String jdbcUrl = "jdbc:sqlite:" + dbFile.getPath();
+		return DriverManager.getConnection(jdbcUrl);
+	}
 
-    private static class DBPath {
-        private final File dbFile;
+	@Override
+	public boolean isHasCastException() {
+		return this.hasCastException;
+	}
 
-        public DBPath(String parent, String child) {
-            if (parent != null && child == null)
-                dbFile = new File(parent);
-            else
-                dbFile = new File(parent, child);
-        }
+	private static class DBPath {
+		private final File dbFile;
 
-        public File getDbFile() {
-            return dbFile;
-        }
-    }
+		public DBPath(String parent, String child) {
+			if (parent != null && child == null) {
+				dbFile = new File(parent);
+			} else {
+				dbFile = new File(parent, child);
+			}
+		}
 
-    @Override
-    public boolean usingHikari() {
-        return this.isHikariAvailable;
-    }
+		public File getDbFile() {
+			return dbFile;
+		}
+	}
 
-
+	@Override
+	public boolean usingHikari() {
+		return this.isHikariAvailable;
+	}
 }
- 

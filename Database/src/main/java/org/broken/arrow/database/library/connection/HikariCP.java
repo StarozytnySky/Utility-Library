@@ -24,110 +24,175 @@ import java.sql.SQLException;
  * for this class to function correctly.
  */
 public class HikariCP {
-    private final Logging log = new Logging(HikariCP.class);
-    private volatile HikariDataSource hikari;
-    private final Database database;
-    private final String driver;
+	private final Logging log = new Logging(HikariCP.class);
+	private final Database database;
+	private final String driver;
+	private HikariDataSource hikari;
 
-    public HikariCP(@Nonnull Database database, String driver) {
-        this.database = database;
-        this.driver = driver;
-    }
+	// Configuration parameters
+	private final String driverConnection;
+	private final String hostAddress;
+	private final String databaseName;
 
-    public Connection getConnection(String driverConnection) throws SQLException {
-        final ConnectionSettings connectionSettings = this.database.getConnectionSettings();
-        final String databaseName = connectionSettings.getDatabaseName();
-        final String hostAddress = connectionSettings.getHostAddress();
+	public HikariCP(@Nonnull Database database, String driver, String driverConnection) {
+		this.database = database;
+		this.driver = driver;
+		this.driverConnection = driverConnection;
 
-        final HikariConfig config = getHikariConfig(driverConnection, hostAddress, databaseName);
+		// Initialize configuration parameters
+		ConnectionSettings connectionSettings = this.database.getConnectionSettings();
+		this.hostAddress = connectionSettings.getHostAddress();
+		this.databaseName = connectionSettings.getDatabaseName();
 
-        final int poolSize = this.database.getMaximumPoolSize();
-        if (poolSize > 0)
-            // Default is usually 32
-            config.setMaximumPoolSize(poolSize);
+		// Initialize the data source
+		initializeDataSource();
+	}
 
-        long connectionTimeout = this.database.getConnectionTimeout();
-        if (connectionTimeout > 0)
-            config.setConnectionTimeout(connectionTimeout);
+	private synchronized void initializeDataSource() {
+		if (this.hikari != null && !this.hikari.isClosed()) {
+			return; // DataSource is already initialized
+		}
 
-        long idleTimeout = this.database.getIdleTimeout();
-        if (idleTimeout > 0)
-            config.setIdleTimeout(idleTimeout);
+		HikariConfig config = getHikariConfig();
 
-        int minIdleTimeout = this.database.getMinimumIdle();
-        if (idleTimeout > 0)
-            config.setMinimumIdle(minIdleTimeout);
+		// Set additional configurations from the database instance
+		int poolSize = this.database.getMaximumPoolSize();
+		if (poolSize > 0) {
+			config.setMaximumPoolSize(poolSize);
+		}
 
-        long maxLifeTime = this.database.getMaxLifeTime();
-        if (maxLifeTime > 0)
-            config.setMaxLifetime(maxLifeTime);
+		long connectionTimeout = this.database.getConnectionTimeout();
+		if (connectionTimeout > 0) {
+			config.setConnectionTimeout(connectionTimeout);
+		}
 
-        return createPoolIfSetDataNotMatch(config);
-    }
-    private Connection createPoolIfSetDataNotMatch(HikariConfig config) throws SQLException {
-        synchronized (this) {
-            if (this.hikari == null || this.hikari.isClosed()) {
-                System.out.println("Creating new HikariDataSource as pool is null or closed.");
-                this.hikari = new HikariDataSource(config);
-            }
+		long idleTimeout = this.database.getIdleTimeout();
+		if (idleTimeout > 0) {
+			config.setIdleTimeout(idleTimeout);
+		}
 
-            boolean needRecreate = !this.hikari.getJdbcUrl().equals(config.getJdbcUrl()) ||
-                    !this.hikari.getUsername().equals(config.getUsername()) ||
-                    !this.hikari.getPassword().equals(config.getPassword());
+		int minIdleTimeout = this.database.getMinimumIdle();
+		if (minIdleTimeout > 0) {
+			config.setMinimumIdle(minIdleTimeout);
+		}
 
-            if (needRecreate) {
-                try {
-                    this.hikari.close();
-                } catch (Exception e) {
-                    log.log(e, () -> Logging.of("Failed to close the connection pool. Continuing with recreation."));
-                }
-                this.hikari = new HikariDataSource(config); // Create a new pool
-            }
+		long maxLifeTime = this.database.getMaxLifeTime();
+		if (maxLifeTime > 0) {
+			config.setMaxLifetime(maxLifeTime);
+		}
 
-            // Validate pool state
-            if (this.hikari.isClosed()) {
-                log.log(java.util.logging.Level.WARNING,()-> Logging.of( "Failed to initialize HikariDataSource. The pool is closed"));
-            }
-        }
+		config.setLeakDetectionThreshold(10_000); // Set threshold to 10 seconds
 
-        // Get connection from the pool
-        return this.hikari.getConnection();
-    }
+		this.hikari = new HikariDataSource(config);
 
-    @Nonnull
-    private HikariConfig getHikariConfig(String driverConnection, String hostAddress, String databaseName) {
-        final ConnectionSettings connectionSettings = this.database.getConnectionSettings();
-        String port = connectionSettings.getPort();
-        String user = connectionSettings.getUser();
-        String password = connectionSettings.getPassword();
-        String extra = connectionSettings.getQuery();
+		// Turn off logs if desired
+		turnOfLogs();
+	}
 
-        if (extra.isEmpty())
-            extra = "?useSSL=false&useUnicode=yes&characterEncoding=UTF-8&autoReconnect=" + true;
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(driverConnection + hostAddress + ":" + port + "/" + databaseName + extra);
-        config.setUsername(user);
-        config.setPassword(password);
-        config.setDriverClassName(this.driver);
-        return config;
-    }
+	@Nonnull
+	private HikariConfig getHikariConfig() {
+		final ConnectionSettings connectionSettings = this.database.getConnectionSettings();
+		String jdbcUrl;
+		String user = connectionSettings.getUser();
+		String password = connectionSettings.getPassword();
+		String extra = connectionSettings.getQuery();
+		HikariConfig config = new HikariConfig();
 
-    public Connection getFileConnection(String driverConnection) throws SQLException {
-        final ConnectionSettings connectionSettings = this.database.getConnectionSettings();
-        String hostAddress = connectionSettings.getHostAddress();
-        if (this.hikari != null)
-            this.hikari.getConnection().close();
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(driverConnection + hostAddress);
-        config.setDriverClassName(this.driver);
-        this.hikari = new HikariDataSource(config);
-        turnOfLogs();
-        return this.hikari.getConnection();
-    }
+		// Determine the database type based on the driver class name
+		String driverClassName = this.driver.toLowerCase();
 
-    public void turnOfLogs() {
-        Configurator.setAllLevels("com.zaxxer.hikari.pool.PoolBase", Level.WARN);
-        Configurator.setAllLevels("com.zaxxer.hikari.HikariDataSource", Level.WARN);
-        Configurator.setAllLevels("com.zaxxer.hikari.pool.HikariPool", Level.WARN);
-    }
+		if (driverClassName.contains("mysql")) {
+			// MySQL configuration
+			String hostAddress = connectionSettings.getHostAddress();
+			String port = connectionSettings.getPort();
+			String databaseName = connectionSettings.getDatabaseName();
+
+			if (extra.isEmpty()) {
+				extra = "?useSSL=false&useUnicode=yes&characterEncoding=UTF-8&autoReconnect=true";
+			}
+
+			jdbcUrl = "jdbc:mysql://" + hostAddress + ":" + port + "/" + databaseName + extra;
+
+			config.setJdbcUrl(jdbcUrl);
+			config.setUsername(user);
+			config.setPassword(password);
+			config.setDriverClassName(this.driver);
+
+		} else if (driverClassName.contains("sqlite")) {
+			// SQLite configuration
+			String databasePath = connectionSettings.getDatabaseName(); // For SQLite, databaseName holds the file path
+
+			jdbcUrl = "jdbc:sqlite:" + databasePath;
+
+			config.setJdbcUrl(jdbcUrl);
+			config.setDriverClassName(this.driver);
+			// SQLite does not require username and password
+
+		} else if (driverClassName.contains("h2")) {
+			// H2 configuration
+			String databasePath = connectionSettings.getDatabaseName(); // For H2, databaseName holds the file path
+
+			if (extra.isEmpty()) {
+				extra = ";AUTO_RECONNECT=TRUE";
+			}
+
+			jdbcUrl = "jdbc:h2:" + databasePath + extra;
+
+			config.setJdbcUrl(jdbcUrl);
+			config.setDriverClassName(this.driver);
+
+			// H2 may or may not require username and password
+			if (user != null && !user.isEmpty()) {
+				config.setUsername(user);
+			}
+			if (password != null && !password.isEmpty()) {
+				config.setPassword(password);
+			}
+
+		} else {
+			throw new IllegalArgumentException("Unsupported database type: " + this.driver);
+		}
+
+		// Set additional configurations from the database instance
+		if (this.database.getMaximumPoolSize() > 0) {
+			config.setMaximumPoolSize(this.database.getMaximumPoolSize());
+		}
+		if (this.database.getConnectionTimeout() > 0) {
+			config.setConnectionTimeout(this.database.getConnectionTimeout());
+		}
+		if (this.database.getIdleTimeout() > 0) {
+			config.setIdleTimeout(this.database.getIdleTimeout());
+		}
+		if (this.database.getMinimumIdle() > 0) {
+			config.setMinimumIdle(this.database.getMinimumIdle());
+		}
+		if (this.database.getMaxLifeTime() > 0) {
+			config.setMaxLifetime(this.database.getMaxLifeTime());
+		}
+
+		config.setLeakDetectionThreshold(10_000); // Set threshold to 10 seconds
+
+		return config;
+	}
+
+	public Connection getConnection() throws SQLException {
+		if (this.hikari == null || this.hikari.isClosed()) {
+			initializeDataSource();
+		}
+		return this.hikari.getConnection();
+	}
+
+	public void close() {
+		if (this.hikari != null && !this.hikari.isClosed()) {
+			this.hikari.close();
+		}
+	}
+
+	public void turnOfLogs() {
+		Configurator.setAllLevels("com.zaxxer.hikari", Level.WARN);
+
+//		Configurator.setAllLevels("com.zaxxer.hikari.pool.PoolBase", Level.WARN);
+//		Configurator.setAllLevels("com.zaxxer.hikari.HikariDataSource", Level.WARN);
+//		Configurator.setAllLevels("com.zaxxer.hikari.pool.HikariPool", Level.WARN);
+	}
 }

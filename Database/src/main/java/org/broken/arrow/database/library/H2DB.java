@@ -18,94 +18,97 @@ import java.util.List;
 import static org.broken.arrow.logging.library.Logging.of;
 
 public class H2DB extends Database {
-    private final Logging log = new Logging(H2DB.class);
+	private final Logging log = new Logging(H2DB.class);
+	private final boolean isHikariAvailable;
+	private final File dbFile;
+	private final HikariCP hikari;
+	private boolean hasCastException;
 
-    private final boolean isHikariAvailable;
-    private final File dbFile;
-    private HikariCP hikari;
-    private boolean hasCastException;
+	public H2DB(@Nonnull final String parent, @Nonnull final String child) {
+		this("com.zaxxer.hikari.HikariConfig", parent, child);
+	}
 
-    public H2DB(@Nonnull final String parent, @Nonnull final String child) {
-        this("com.zaxxer.hikari.HikariConfig", parent, child);
-    }
+	public H2DB(@Nonnull final String hikariClazzPath, @Nonnull final String parent, @Nonnull final String child) {
+		this(hikariClazzPath, new DBPath(parent, child));
+	}
 
-    public H2DB(@Nonnull final String hikariClazzPath, @Nonnull final String parent, @Nonnull final String child) {
-        this(hikariClazzPath, new DBPath(parent, child));
-    }
+	public H2DB(String hikariClazzPath, DBPath dbPath) {
+		super(new ConnectionSettings(dbPath.getDbFile().getPath()));
+		this.dbFile = dbPath.getDbFile();
 
-    public H2DB(String hikariClazzPath, DBPath dbPath) {
-        super(new ConnectionSettings(dbPath.getDbFile().getPath()));
-        this.dbFile = dbPath.getDbFile();
+		this.isHikariAvailable = isHikariAvailable(hikariClazzPath);
+		this.loadDriver("org.h2.Driver");
 
-        this.isHikariAvailable = isHikariAvailable(hikariClazzPath);
-        this.loadDriver("org.h2.Driver");
-        connect();
-    }
+		if (isHikariAvailable) {
+			this.hikari = new HikariCP(this, "org.h2.Driver", "jdbc:h2:");
+		} else {
+			this.hikari = null;
+		}
+		connect();
+	}
 
-    @Override
-    public Connection connect() {
-        try {
-            return setupConnection();
-        } catch (SQLException e) {
-            this.hasCastException = true;
-            log.log(e, () -> of("Fail to connect to H2 database. With the file path: " + this.dbFile));
-        }
-        return null;
-    }
+	@Override
+	public Connection connect() {
+		try {
+			if (!hasCastException) {
+				if (isHikariAvailable && this.hikari != null) {
+					return this.hikari.getConnection();
+				} else {
+					return setupConnection();
+				}
+			}
+		} catch (SQLException e) {
+			this.hasCastException = true;
+			log.log(e, () -> of("Fail to connect to H2 database. With the file path: " + this.dbFile));
+		}
+		return null;
+	}
 
-    @Override
-    public boolean usingHikari() {
-        return this.isHikariAvailable;
-    }
+	@Override
+	public boolean usingHikari() {
+		return this.isHikariAvailable;
+	}
 
-    @Override
-    protected void batchUpdate(@Nonnull final List<SqlCommandComposer> batchList, @Nonnull final TableWrapper... tableWrappers) {
-        this.batchUpdate(batchList, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-    }
+	@Override
+	protected void batchUpdate(@Nonnull final List<SqlCommandComposer> batchList, @Nonnull final TableWrapper... tableWrappers) {
+		this.batchUpdate(batchList, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+	}
 
-    @Override
-    protected SqlCommandComposer getCommandComposer(@Nonnull final RowWrapper rowWrapper, final boolean shallUpdate, String... columns) {
-        SqlCommandComposer sqlCommandComposer = new SqlCommandComposer(rowWrapper, this);
-        boolean columnsIsEmpty = columns == null || columns.length == 0;
-        sqlCommandComposer.setColumnsToUpdate(columns);
+	@Override
+	protected SqlCommandComposer getCommandComposer(@Nonnull final RowWrapper rowWrapper, final boolean shallUpdate, String... columns) {
+		SqlCommandComposer sqlCommandComposer = new SqlCommandComposer(rowWrapper, this);
+		boolean columnsIsEmpty = columns == null || columns.length == 0;
+		sqlCommandComposer.setColumnsToUpdate(columns);
 
-        if ((!columnsIsEmpty || shallUpdate) && this.doRowExist(rowWrapper.getTableWrapper().getTableName(), rowWrapper.getPrimaryKeyValue()))
-            sqlCommandComposer.updateTable(rowWrapper.getPrimaryKeyValue());
-        else
-            sqlCommandComposer.mergeIntoTable();
-        return sqlCommandComposer;
-    }
+		if ((!columnsIsEmpty || shallUpdate) && this.doRowExist(rowWrapper.getTableWrapper().getTableName(), rowWrapper.getPrimaryKeyValue()))
+			sqlCommandComposer.updateTable(rowWrapper.getPrimaryKeyValue());
+		else
+			sqlCommandComposer.mergeIntoTable();
+		return sqlCommandComposer;
+	}
 
-    public Connection setupConnection() throws SQLException {
-        Connection connection;
+	public Connection setupConnection() throws SQLException {
+		String jdbcUrl = "jdbc:h2:" + dbFile.getPath();
+		return DriverManager.getConnection(jdbcUrl);
+	}
 
-        if (this.isHikariAvailable) {
-            if (this.hikari == null) hikari = new HikariCP(this, "org.h2.Driver");
-            connection = this.hikari.getFileConnection("jdbc:h2:");
-        } else {
-            connection = DriverManager.getConnection("jdbc:h2:" + this.dbFile.getPath());
-        }
-        hasCastException = false;
-        return connection;
-    }
+	@Override
+	public boolean isHasCastException() {
+		return this.hasCastException;
+	}
 
-    @Override
-    public boolean isHasCastException() {
-        return this.hasCastException;
-    }
+	private static class DBPath {
+		private final File dbFile;
 
-    private static class DBPath {
-        private final File dbFile;
+		public DBPath(String parent, String child) {
+			if (parent != null && child == null)
+				dbFile = new File(parent);
+			else
+				dbFile = new File(parent, child);
+		}
 
-        public DBPath(String parent, String child) {
-            if (parent != null && child == null)
-                dbFile = new File(parent);
-            else
-                dbFile = new File(parent, child);
-        }
-
-        public File getDbFile() {
-            return dbFile;
-        }
-    }
+		public File getDbFile() {
+			return dbFile;
+		}
+	}
 }
