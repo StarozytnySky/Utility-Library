@@ -14,8 +14,8 @@ import org.bukkit.inventory.ItemStack;
 
 import static org.broken.arrow.menu.library.utility.ItemCreator.isItemSimilar;
 
-public class MenuInteractionChecks<T> {
-    private final MenuUtility<T> menuUtility;
+    public class MenuInteractionChecks<T> {
+    protected final MenuUtility<T> menuUtility;
 
     public MenuInteractionChecks(MenuUtility<T> menuUtility) {
         this.menuUtility = menuUtility;
@@ -70,14 +70,20 @@ public class MenuInteractionChecks<T> {
 
     public MenuButton getClickedButton(final ItemStack item, final int clickedPos) {
         final MenuDataUtility<T> menuData = this.menuUtility.getMenuData(this.menuUtility.getPageNumber());
+        System.out.println("DEBUG: Checking button for slot " + clickedPos + ", menuData: " + (menuData != null ? menuData.getButtons().keySet() : "null"));
         if (menuData != null) {
             final ButtonData<?> buttonData = menuData.getButton(clickedPos);
+            System.out.println("DEBUG: Button data for slot " + clickedPos + ": " + (buttonData != null));
             if (buttonData == null) return null;
             if (this.menuUtility.isIgnoreItemCheck()) {
-                return menuData.getMenuButton(clickedPos);
+                MenuButton menuButton = menuData.getMenuButton(clickedPos);
+                System.out.println("DEBUG: Button found for slot " + clickedPos + ": " + (menuButton != null ? menuButton.getClass().getSimpleName() : "null"));
+                return menuButton;
             }
             if (isItemSimilar(buttonData.getItemStack(), item)) {
-                return menuData.getMenuButton(clickedPos);
+                MenuButton menuButton = menuData.getMenuButton(clickedPos);
+                System.out.println("DEBUG: Button found for slot " + clickedPos + " with item check: " + (menuButton != null ? menuButton.getClass().getSimpleName() : "null"));
+                return menuButton;
             }
         }
         return null;

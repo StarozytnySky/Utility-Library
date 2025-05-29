@@ -16,5 +16,7 @@ public enum MenuMetadataKey {
 	 * open a menu some get stored in cache to allow several players modify
 	 * same inventory (used if you want connect a location with a menu).
 	 */
-	MENU_OPEN_LOCATION
+	MENU_OPEN_LOCATION,
+
+	NAVIGATION_CLICK
 }

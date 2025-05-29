@@ -94,6 +94,10 @@ public abstract class HolderUtility<T> extends MenuUtility<T> {
     public void menuClose(final InventoryCloseEvent event, final MenuUtility<?> menu) {
     }
 
+    @Override
+    public void menuClose(final Player player, final InventoryCloseEvent event) {
+    }
+
     /**
      * open menu and make one instance in cache.
      * Will be cleared on server restart.

@@ -77,6 +77,10 @@ public class MenuRenderer<T> {
         return requiredPages;
     }
 
+    public int setRequiredPages(int requiredPages) {
+        return this.requiredPages = requiredPages;
+    }
+
     /**
      * Gets the number of items rendered on one page.
      *
@@ -86,6 +90,10 @@ public class MenuRenderer<T> {
         return numberOfFillItems;
     }
 
+    public int setNumberOfFillItems(int numberOfFillItems) {
+        return this.numberOfFillItems = numberOfFillItems;
+    }
+
     /**
      * Prepares and caches menu items across all available pages.
      * Calculates the number of required pages and fills them by rendering.
@@ -93,13 +101,16 @@ public class MenuRenderer<T> {
      * @return the total number of pages rendered
      */
     public int setMenuItemsToAllPages() {
-        requiredPages = Math.max((int) Math.ceil(amountOfPages()), 1);
+        return setMenuItemsToAllPages(false);
+    }
 
+    public int setMenuItemsToAllPages(boolean sharedMode) {
+        requiredPages = Math.max((int) Math.ceil(amountOfPages()), 1);
         this.resetStartItemIndex();
         this.setHighestFillSlot(this.utility.getHighestFillSlot());
 
         for (int i = 0; i < requiredPages; i++) {
-            this.cacheButton(i);
+            this.cacheButton(i, sharedMode);
             if (i == 0) numberOfFillItems = this.getStartItemIndex();
         }
         this.resetStartItemIndex();
@@ -114,15 +125,19 @@ public class MenuRenderer<T> {
      * @return the total number of pages that exist
      */
     public int setMenuItemsToPage(final int pageNumber) {
+        return setMenuItemsToPage(pageNumber, false);
+    }
+
+    public int setMenuItemsToPage(final int pageNumber, boolean sharedMode) {
         requiredPages = Math.max((int) Math.ceil(amountOfPages()), 1);
         int currentFillSlot = pageNumber * numberOfFillItems;
 
         this.setStartItemIndex(currentFillSlot);
         if (this.lastFillSlot <= 0)
             this.setHighestFillSlot(this.utility.getHighestFillSlot());
-        this.cacheButton(pageNumber);
+        this.cacheButton(pageNumber, sharedMode);
 
-        if (numberOfFillItems <= 0 )
+        if (numberOfFillItems <= 0)
             numberOfFillItems = this.getStartItemIndex();
 
         return requiredPages;
@@ -135,8 +150,11 @@ public class MenuRenderer<T> {
      * @param pageNumber the page index to cache
      */
     public void cacheButton(final int pageNumber) {
+        cacheButton(pageNumber, false);
+    }
 
-        MenuDataUtility<T> menuDataUtility = this.renderPage(pageNumber);
+    public void cacheButton(final int pageNumber, boolean sharedMode) {
+        MenuDataUtility<T> menuDataUtility = this.renderPage(pageNumber, sharedMode);
         if (!this.utility.shallCacheItems()) {
             this.utility.putAddedButtonsCache(pageNumber, menuDataUtility);
         }
@@ -150,14 +168,28 @@ public class MenuRenderer<T> {
      * @return a MenuDataUtility containing the rendered items
      */
     public MenuDataUtility<T> renderPage(final int pageNumber) {
+        return renderPage(pageNumber, false);
+    }
+
+    public MenuDataUtility<T> renderPage(final int pageNumber, boolean sharedMode) {
         MenuDataUtility<T> data = new MenuDataUtility<>();
         List<Integer> fillSlots = this.utility.getFillSpace();
 
-        for (int slot = 0; slot < this.utility.getInventorySize(); slot++) {
-            boolean isFillButton = fillSlots.contains(slot);
-
-            this.utility.setButton(pageNumber, data, slot, this.itemIndex, slot > this.lastFillSlot);
-            if (isFillButton) incrementItemIndex();
+        if (sharedMode) {
+            // Renderuj tylko fillSlots
+            for (int slot : fillSlots) {
+                if (this.itemIndex < this.utility.getListOfFillItems().size()) {
+                    this.utility.setButton(pageNumber, data, slot, this.itemIndex, false);
+                    incrementItemIndex();
+                }
+            }
+        } else {
+            // Standardowe renderowanie
+            for (int slot = 0; slot < this.utility.getInventorySize(); slot++) {
+                boolean isFillButton = fillSlots.contains(slot);
+                this.utility.setButton(pageNumber, data, slot, this.itemIndex, slot > this.lastFillSlot);
+                if (isFillButton) incrementItemIndex();
+            }
         }
         return data;
     }
@@ -200,13 +232,16 @@ public class MenuRenderer<T> {
      * @return a valid page count, or {@code null} if not available or invalid
      */
     @Nullable
-    private Double getSetPages() {
+    public Double getSetPages() {
         if (this.amountOfPages != null) {
             Double pagesTotal = this.amountOfPages.get();
-            if (pagesTotal != null && pagesTotal > 0)
+            if (pagesTotal != null && pagesTotal > 0) {
+                System.out.println("Set pages " + pagesTotal);
                 return pagesTotal;
+            }
         }
-        return null;
+        System.out.println("Set page is null");
+        return 0.0;
     }
 
     /**

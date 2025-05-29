@@ -26,6 +26,11 @@ public class InventoryRenderer<T> {
 
     @Nonnull
     public Inventory redraw() {
+        return redraw(false);
+    }
+
+    @Nonnull
+    public Inventory redraw(boolean sharedMode) {
         Inventory menu = utility.getMenu();
         int size = utility.getInventorySize();
         List<Integer> fillSpace = utility.getFillSpace();
@@ -34,25 +39,34 @@ public class InventoryRenderer<T> {
             menu = createInventory();
         }
 
-        int fillSlots = !fillSpace.isEmpty() ? fillSpace.size() : menu.getSize();
-
-        for (int i = fillSpace.stream().findFirst().orElse(0); i < fillSlots; i++) {
-            menu.setItem(i, new ItemStack(Material.AIR));
-        }
-
-        Map<Integer, ButtonData<T>> buttons = utility.getMenuButtons(utility.getPageNumber());
-        if (buttons != null && !buttons.isEmpty()) {
-            for (int i = 0; i < menu.getSize(); i++) {
-                ButtonData<?> data = buttons.get(utility.getPageNumber() * size + i);
-                menu.setItem(i, data != null ? data.getItemStack() : null);
+        if (sharedMode) {
+            // Aktualizuj tylko sloty z getButtonAt, zachowaj fillSlots
+            Map<Integer, ButtonData<T>> buttons = utility.getMenuButtons(utility.getPageNumber());
+            for (int slot = 0; slot < menu.getSize(); slot++) {
+                if (!fillSpace.contains(slot)) {
+                    ButtonData<?> data = buttons != null ? buttons.get(slot) : null;
+                    menu.setItem(slot, data != null ? data.getItemStack() : null);
+                }
+            }
+        } else {
+            // Standardowe renderowanie
+            int fillSlots = !fillSpace.isEmpty() ? fillSpace.size() : menu.getSize();
+            for (int i = fillSpace.stream().findFirst().orElse(0); i < fillSlots; i++) {
+                menu.setItem(i, new ItemStack(Material.AIR));
+            }
+            Map<Integer, ButtonData<T>> buttons = utility.getMenuButtons(utility.getPageNumber());
+            if (buttons != null && !buttons.isEmpty()) {
+                for (int i = 0; i < menu.getSize(); i++) {
+                    ButtonData<?> data = buttons.get(utility.getPageNumber() * size + i);
+                    menu.setItem(i, data != null ? data.getItemStack() : null);
+                }
             }
         }
-
         return menu;
     }
 
     @Nonnull
-    private Inventory createInventory() {
+    public Inventory createInventory() {
         String title = Optional.ofNullable(utility.getTitle()).map(Object::toString).orElse(" ");
         InventoryType type = utility.getInventoryType();
         int size = utility.getInventorySize();

@@ -189,12 +189,15 @@ public class RegisterMenuAPI {
 			}
 			cacheData.remove(player.getUniqueId());
 
-			if (!event.getView().getTopInventory().equals(menuUtility.getMenu()))
+			if (!event.getView().getTopInventory().equals(menuUtility.getMenu())) {
+				System.out.println("getTopInventory is different from getMenu. Event: " + event.getView().getTopInventory() + " | " + "Utility: "  + menuUtility.getMenu());
 				return;
+			}
 
 			menuUtility.closeTasks();
 			try {
 				menuUtility.menuClose(event, menuUtility);
+				menuUtility.menuClose(player, event);
 			} finally {
 				if (getPlayerMeta().hasPlayerMetadata(player, MenuMetadataKey.MENU_OPEN)) {
 					getPlayerMeta().removePlayerMenuMetadata(player, MenuMetadataKey.MENU_OPEN);

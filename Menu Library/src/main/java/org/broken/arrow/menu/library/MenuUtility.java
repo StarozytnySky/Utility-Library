@@ -5,6 +5,7 @@ import org.broken.arrow.logging.library.Logging;
 import org.broken.arrow.menu.library.builders.ButtonData;
 import org.broken.arrow.menu.library.builders.MenuDataUtility;
 import org.broken.arrow.menu.library.button.MenuButton;
+import org.broken.arrow.menu.library.cache.PlayerMenuCache;
 import org.broken.arrow.menu.library.holder.MenuHolder;
 import org.broken.arrow.menu.library.holder.MenuHolderPage;
 import org.broken.arrow.menu.library.holder.utility.AnimateTitleTask;
@@ -88,6 +89,7 @@ public class MenuUtility<T> {
 
     private AnimateTitleTask<T> animateTitleTask;
     private ButtonAnimation<T> buttonAnimation;
+    private PlayerMenuCache playerMenuCache;
 
     private Inventory inventory;
     private String playerMetadataKey;
@@ -422,6 +424,10 @@ public class MenuUtility<T> {
         return this.menuRenderer.getRequiredPages();
     }
 
+    public int setRequiredPages(int requiredPages) {
+        return this.menuRenderer.setRequiredPages(requiredPages);
+    }
+
     public int getItemsPerPage() {
         return this.itemsPerPage;
     }
@@ -516,6 +522,10 @@ public class MenuUtility<T> {
      */
 
     public void menuClose(final InventoryCloseEvent event, final MenuUtility<?> menu) {
+        //optional you can override this if you plan to do something when menu is closing.
+    }
+
+    public void menuClose(final Player player, final InventoryCloseEvent event) {
         //optional you can override this if you plan to do something when menu is closing.
     }
 
@@ -653,6 +663,10 @@ public class MenuUtility<T> {
         return this.menuRenderer.getNumberOfFillItems();
     }
 
+    public int setNumberOfFillItems(int numberOfFillItems) {
+        return this.menuRenderer.setNumberOfFillItems(numberOfFillItems);
+    }
+
     public boolean shallCacheItems() {
         return shallCacheItems;
     }
@@ -684,12 +698,15 @@ public class MenuUtility<T> {
     }
 
     public void updateTitle(Object text) {
+        updateTitle(player, text);
+    }
+
+    public void updateTitle(Player player, Object text) {
         if (text instanceof String)
             UpdateTitle.update(player, (String) text, useColorConversion);
         if (text instanceof JsonObject)
             UpdateTitle.update(player, (JsonObject) text);
     }
-
     /**
      * Remove the cached menu. if you use location.
      */
@@ -729,6 +746,12 @@ public class MenuUtility<T> {
         Object title = getTitle();
         if (!menuAPI.isNotFoundUpdateTitleClazz())
             this.updateTitle(title);
+    }
+
+    public void updateTitle(Player player) {
+        Object title = getTitle();
+        if (!menuAPI.isNotFoundUpdateTitleClazz())
+            this.updateTitle(player, title);
     }
 
     @Nullable
@@ -823,10 +846,14 @@ public class MenuUtility<T> {
     }
 
     protected void onMenuOpenPlaySound() {
+        onMenuOpenPlaySound(this.player);
+    }
+
+    protected void onMenuOpenPlaySound(Player player) {
         final Sound sound = this.menuOpenSound;
         if (sound == null) return;
 
-        this.player.playSound(player.getLocation(), sound, 1, 1);
+        player.playSound(player.getLocation(), sound, 1, 1);
     }
 
     /**
@@ -907,6 +934,18 @@ public class MenuUtility<T> {
 
     protected void redrawInventory() {
         this.inventory = this.inventoryRender.redraw();
+    }
+
+    protected void redrawInventory(boolean shared) {
+        this.inventory = this.inventoryRender.redraw(shared);
+    }
+
+    protected Inventory getInventory() {
+        return this.inventoryRender.createInventory();
+    }
+
+    public PlayerMenuCache getPlayerMenuCache() {
+        return this.playerMenuCache;
     }
 
     protected void updateButtonsInList() {
