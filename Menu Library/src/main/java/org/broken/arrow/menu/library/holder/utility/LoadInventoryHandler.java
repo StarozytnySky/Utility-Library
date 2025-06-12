@@ -6,6 +6,8 @@ import org.broken.arrow.menu.library.MenuUtility;
 import org.broken.arrow.menu.library.RegisterMenuAPI;
 import org.broken.arrow.menu.library.cache.MenuCache;
 import org.broken.arrow.menu.library.cache.MenuCacheKey;
+import org.broken.arrow.menu.library.cache.PlayerMenuCache;
+import org.broken.arrow.menu.library.holder.MenuHolderShared;
 import org.broken.arrow.menu.library.utility.MetadataPlayer;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -39,18 +41,35 @@ public class LoadInventoryHandler<T> {
                 menuCached = this.getMenuCache();
             }
             if (!this.menuUtility.isIgnoreValidCheck()) {
-                Validate.checkBoolean(!menuCached.getClass().equals(this.menuUtility.getClass()) && (this.uniqueKey == null || this.uniqueKey.isEmpty()), "You need set uniqueKey for this menu " + menuCached.getClass() + " or it will replace the old menu and players left can take items, set method setIgnoreValidCheck() to ignore this or set the uniqueKey");
+                Validate.checkBoolean(!menuCached.getClass().equals(this.menuUtility.getClass()) && (this.uniqueKey == null || this.uniqueKey.isEmpty()),
+                        "You need set uniqueKey for this menu " + menuCached.getClass() + " or it will replace the old menu and players left can take items, set method setIgnoreValidCheck() to ignore this or set the uniqueKey");
             } else {
                 saveMenuCache(this.location);
                 menuCached = this.getMenuCache();
             }
-            menu = menuCached.getMenu();
+
+            // If MenuHolderShared, use PlayerMenuCache inventory
+            if (menuCached instanceof MenuHolderShared) {
+                MenuHolderShared<T> sharedMenu = (MenuHolderShared<T>) menuCached;
+                PlayerMenuCache.PlayerMenuData data = sharedMenu.getPlayerMenuCache().getPlayerData(player);
+                menu = data.getInventory();
+            } else {
+                menu = menuCached.getMenu();
+            }
         } else {
             MetadataPlayer playerMeta = this.metadataPlayer;
             playerMeta.setPlayerMenuMetadata(player, MenuMetadataKey.MENU_OPEN_PREVIOUS, menuUtility);
             playerMeta.setPlayerMenuMetadata(player, MenuMetadataKey.MENU_OPEN, menuUtility);
             final MenuUtility<?> menuUtility = playerMeta.getPlayerMenuMetadata(player, MenuMetadataKey.MENU_OPEN);
-            if (menuUtility != null) menu = menuUtility.getMenu();
+            if (menuUtility != null) {
+                if (menuUtility instanceof MenuHolderShared) {
+                    MenuHolderShared<?> sharedMenu = (MenuHolderShared<?>) menuUtility;
+                    PlayerMenuCache.PlayerMenuData data = sharedMenu.getPlayerMenuCache().getPlayerData(player);
+                    menu = data.getInventory();
+                } else {
+                    menu = menuUtility.getMenu();
+                }
+            }
         }
         return menu;
     }

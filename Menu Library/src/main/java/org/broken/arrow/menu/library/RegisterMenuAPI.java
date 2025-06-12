@@ -3,6 +3,8 @@ package org.broken.arrow.menu.library;
 import org.broken.arrow.itemcreator.library.ItemCreator;
 import org.broken.arrow.logging.library.Logging;
 import org.broken.arrow.menu.library.cache.MenuCache;
+import org.broken.arrow.menu.library.cache.PlayerMenuCache;
+import org.broken.arrow.menu.library.holder.MenuHolderShared;
 import org.broken.arrow.menu.library.messages.SendMsgDuplicatedItems;
 import org.broken.arrow.menu.library.utility.MetadataPlayer;
 import org.broken.arrow.menu.library.utility.ServerVersion;
@@ -13,12 +15,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.ClickType;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
-import org.bukkit.event.inventory.InventoryOpenEvent;
-import org.bukkit.event.inventory.InventoryType;
+import org.bukkit.event.inventory.*;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
@@ -27,7 +25,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
-
 
 public class RegisterMenuAPI {
 	private final Logging logger = new Logging(RegisterMenuAPI.class);
@@ -85,7 +82,7 @@ public class RegisterMenuAPI {
 	}
 
 	public static RegisterMenuAPI getMenuAPI() {
-		return  menuAPI;
+		return menuAPI;
 	}
 
 	private void versionCheck(boolean turnOffLogger) {
@@ -134,7 +131,6 @@ public class RegisterMenuAPI {
 	private void registerMenuEvent(final Plugin plugin) {
 		final MenuHolderListener menuHolderListener = new MenuHolderListener();
 		Bukkit.getPluginManager().registerEvents(menuHolderListener, plugin);
-
 	}
 
 	private class MenuHolderListener implements Listener {
@@ -152,9 +148,19 @@ public class RegisterMenuAPI {
 			final MenuUtility<?> menuUtility = getMenuHolder(player);
 			if (menuUtility == null) return;
 
-			if (event.getSlotType() == InventoryType.SlotType.OUTSIDE) menuUtility.menuClickOutside(event, menuUtility);
+			if (event.getSlotType() == InventoryType.SlotType.OUTSIDE) {
+				menuUtility.menuClickOutside(event, menuUtility);
+				return;
+			}
 
-			if (!event.getView().getTopInventory().equals(menuUtility.getMenu())) return;
+			Inventory topInventory = event.getView().getTopInventory();
+			Inventory menuInventory;
+			menuInventory = getInventory(player, menuUtility);
+
+			if (!topInventory.equals(menuInventory)) {
+				//System.out.println("DEBUG: onMenuClicking getTopInventory is different from getMenu. Event: " + topInventory.hashCode() + " | Utility: " + (menuInventory != null ? menuInventory.hashCode() : "null"));
+				return;
+			}
 
 			if (menuUtility.getMenuInteractionChecks().whenPlayerClick(event, player, clickedItem)) {
 				onOffHandClick(event, player);
@@ -168,6 +174,15 @@ public class RegisterMenuAPI {
 			final MenuUtility<?> menuUtility = getMenuHolder(player);
 			if (menuUtility == null) return;
 			if (ServerVersion.olderThan(ServerVersion.V1_15)) return;
+
+			Inventory topInventory = event.getView().getTopInventory();
+			Inventory menuInventory;
+			menuInventory = getInventory(player, menuUtility);
+
+			if (!topInventory.equals(menuInventory)) {
+				//System.out.println("DEBUG: onMenuOpen getTopInventory is different from getMenu. Event: " + topInventory.hashCode() + " | Utility: " + (menuInventory != null ? menuInventory.hashCode() : "null"));
+				return;
+			}
 
 			this.cacheData.put(player.getUniqueId(), new SwapData(false, player.getInventory().getItemInOffHand()));
 		}
@@ -189,12 +204,18 @@ public class RegisterMenuAPI {
 			}
 			cacheData.remove(player.getUniqueId());
 
-			if (!event.getView().getTopInventory().equals(menuUtility.getMenu())) {
-				System.out.println("getTopInventory is different from getMenu. Event: " + event.getView().getTopInventory() + " | " + "Utility: "  + menuUtility.getMenu());
+			Inventory topInventory = event.getView().getTopInventory();
+			Inventory menuInventory;
+			menuInventory = getInventory(player, menuUtility);
+
+			if (!topInventory.equals(menuInventory)) {
+				//System.out.println("DEBUG: onMenuClose getTopInventory is different from getMenu. Event: " + topInventory.hashCode() + " | Utility: " + (menuInventory != null ? menuInventory.hashCode() : "null"));
 				return;
 			}
 
-			menuUtility.closeTasks();
+			if(!(menuUtility instanceof MenuHolderShared))
+					menuUtility.closeTasks();
+
 			try {
 				menuUtility.menuClose(event, menuUtility);
 				menuUtility.menuClose(player, event);
@@ -210,7 +231,6 @@ public class RegisterMenuAPI {
 			}
 		}
 
-
 		@EventHandler(priority = EventPriority.LOW)
 		public void onInventoryDragTop(final InventoryDragEvent event) {
 			final Player player = (Player) event.getWhoClicked();
@@ -220,16 +240,23 @@ public class RegisterMenuAPI {
 			if (menuUtility == null) return;
 			if (menuUtility.getMenu() == null) return;
 
+			Inventory topInventory = event.getView().getTopInventory();
+			Inventory menuInventory;
+			menuInventory = getInventory(player, menuUtility);
+
+			if (!topInventory.equals(menuInventory)) {
+				//System.out.println("DEBUG: onInventoryDragTop getTopInventory is different from getMenu. Event: " + topInventory.hashCode() + " | Utility: " + (menuInventory != null ? menuInventory.hashCode() : "null"));
+				return;
+			}
+
 			if (!menuUtility.isAddedButtonsCacheEmpty()) {
-				final int size = event.getView().getTopInventory().getSize();
-                menuUtility.getMenuInteractionChecks().whenPlayerDrag(event, size);
+				final int size = topInventory.getSize();
+				menuUtility.getMenuInteractionChecks().whenPlayerDrag(event, size);
 			}
 		}
 
-
 		@Nullable
 		private MenuUtility<?> getMenuHolder(final Player player) {
-
 			Object menukey = null;
 
 			if (getPlayerMeta().hasPlayerMetadata(player, MenuMetadataKey.MENU_OPEN_LOCATION)) {
@@ -246,7 +273,6 @@ public class RegisterMenuAPI {
 		}
 
 		private class SwapData {
-
 			boolean playerUseSwapoffhand;
 			ItemStack itemInOfBeforeOpenMenuHand;
 
@@ -272,6 +298,18 @@ public class RegisterMenuAPI {
 					item = data.getItemInOfBeforeOpenMenuHand();
 				}
 				cacheData.put(player.getUniqueId(), new SwapData(true, item));
+			}
+		}
+
+		// Helper method to get inventory
+		private Inventory getInventory(Player player, MenuUtility<?> menuUtility){
+			if (menuUtility instanceof MenuHolderShared) {
+				MenuHolderShared<?> sharedMenu = (MenuHolderShared<?>) menuUtility;
+				PlayerMenuCache.PlayerMenuData cacheData = sharedMenu.getPlayerMenuCache().getPlayerData(player);
+
+				return cacheData.getInventory();
+			} else {
+				return menuUtility.getMenu();
 			}
 		}
 	}

@@ -8,6 +8,7 @@ import org.broken.arrow.menu.library.builders.ButtonData;
 import org.broken.arrow.menu.library.builders.MenuDataUtility;
 import org.broken.arrow.menu.library.button.MenuButton;
 import org.broken.arrow.menu.library.cache.MenuCacheKey;
+import org.broken.arrow.menu.library.cache.PlayerMenuCache;
 import org.broken.arrow.menu.library.utility.Function;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -430,14 +431,32 @@ public abstract class HolderUtility<T> extends MenuUtility<T> {
      * @param menuButton the current button.
      */
     public void updateButton(final MenuButton menuButton) {
-        final MenuDataUtility<T> menuDataUtility = getMenuData(getPageNumber());
+        updateButton(null,menuButton);
+    }
+
+    public void updateButton(Player player, final MenuButton menuButton) {
+
+        final MenuDataUtility<T> menuDataUtility;
+        Inventory menu = this.getMenu();
+        int pageNumer;
+
+        if (this instanceof MenuHolderShared && player != null) {
+            MenuHolderShared<?> sharedMenu = (MenuHolderShared<?>) this;
+            PlayerMenuCache.PlayerMenuData cacheData = sharedMenu.getPlayerMenuCache().getPlayerData(player);
+
+			menu = cacheData.getInventory();
+            pageNumer = cacheData.getCurrentPage();
+        } else {
+            pageNumer = getPageNumber();
+        }
+
+        menuDataUtility = getMenuData(pageNumer);
+
         final Set<Integer> buttonSlots = this.getButtonSlots(menuDataUtility, menuButton);
 
-        Inventory menu = this.getMenu();
         if (menuDataUtility != null && menu != null) {
             if (!buttonSlots.isEmpty()) {
                 for (final int slot : buttonSlots) {
-
                     int menuSlot = this.getSlot(slot);
                     final ButtonData<T> buttonData = menuDataUtility.getButton(menuSlot);
                     if (buttonData == null) return;
@@ -456,10 +475,10 @@ public abstract class HolderUtility<T> extends MenuUtility<T> {
                 menu.setItem(buttonSlot, itemStack);
                 menuDataUtility.putButton(slot, new ButtonData<>(itemStack, menuButton, buttonData.getObject()));
             }
-            this.putAddedButtonsCache(this.getPageNumber(), menuDataUtility);
+
+            this.putAddedButtonsCache(pageNumer, menuDataUtility);
         }
     }
-
     /**
      * Update all buttons inside the menu.
      */

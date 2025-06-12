@@ -8,6 +8,7 @@ import org.broken.arrow.menu.library.button.MenuButton;
 import org.broken.arrow.menu.library.cache.PlayerMenuCache;
 import org.broken.arrow.menu.library.holder.MenuHolder;
 import org.broken.arrow.menu.library.holder.MenuHolderPage;
+import org.broken.arrow.menu.library.holder.MenuHolderShared;
 import org.broken.arrow.menu.library.holder.utility.AnimateTitleTask;
 import org.broken.arrow.menu.library.holder.utility.InventoryRenderer;
 import org.broken.arrow.menu.library.holder.utility.LoadInventoryHandler;
@@ -31,13 +32,8 @@ import org.bukkit.plugin.Plugin;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Set;
 
 import static org.broken.arrow.menu.library.utility.ItemCreator.convertMaterialFromString;
 
@@ -309,11 +305,26 @@ public class MenuUtility<T> {
      * @return slot number or -1 if not fund data or if cache is null.
      */
     public int getButtonSlot(final MenuButton menuButton) {
-        final Map<Integer, ButtonData<T>> data = this.getMenuButtons(this.getPageNumber());
+        return getButtonSlot(null,menuButton);
+    }
+
+    public int getButtonSlot(Player player, final MenuButton menuButton) {
+        int pageNumber;
+
+        if (this instanceof MenuHolderShared && player != null) {
+            MenuHolderShared<?> sharedMenu = (MenuHolderShared<?>) this;
+            PlayerMenuCache.PlayerMenuData cacheData = sharedMenu.getPlayerMenuCache().getPlayerData(player);
+
+            pageNumber = cacheData.getCurrentPage();
+        } else{
+            pageNumber = this.getPageNumber();
+        }
+
+        final Map<Integer, ButtonData<T>> data = this.getMenuButtons(pageNumber);
         if (data == null) return -1;
         for (final Entry<Integer, ButtonData<T>> entry : data.entrySet()) {
             if (entry.getValue().getMenuButton().getId() == menuButton.getId())
-                return entry.getKey() - (this.getPageNumber() * this.getInventorySize());
+                return entry.getKey() - (pageNumber * this.getInventorySize());
         }
         return -1;
     }
@@ -327,20 +338,36 @@ public class MenuUtility<T> {
      */
     @Nonnull
     public Set<Integer> getButtonSlots(final MenuDataUtility<T> menuDataUtility, final MenuButton menuButton) {
+        return getButtonSlots(player, menuDataUtility, menuButton);
+    }
+
+    @Nonnull
+    public Set<Integer> getButtonSlots(Player player, final MenuDataUtility<T> menuDataUtility, final MenuButton menuButton) {
         final Set<Integer> slots = new HashSet<>();
         if (menuDataUtility == null) return slots;
         final int menuButtonId = menuButton.getId();
+
+        int pageNumber;
+
+        if (this instanceof MenuHolderShared && player != null) {
+            MenuHolderShared<?> sharedMenu = (MenuHolderShared<?>) this;
+            PlayerMenuCache.PlayerMenuData cacheData = sharedMenu.getPlayerMenuCache().getPlayerData(player);
+
+            pageNumber = cacheData.getCurrentPage();
+        } else{
+            pageNumber = this.getPageNumber();
+        }
 
         for (final Entry<Integer, ButtonData<T>> entry : menuDataUtility.getButtons().entrySet()) {
             final MenuButton cacheMenuButton = entry.getValue().getMenuButton();
             final MenuButton fillMenuButton = menuDataUtility.getFillMenuButton(menuButton);
             if (cacheMenuButton == null) {
                 if (fillMenuButton != null && fillMenuButton.getId() == menuButtonId) {
-                    slots.add(entry.getKey() - (this.getPageNumber() * this.getInventorySize()));
+                    slots.add(entry.getKey() - (pageNumber * this.getInventorySize()));
                 }
             } else {
                 if (menuButtonId == cacheMenuButton.getId()) {
-                    slots.add(entry.getKey() - (this.getPageNumber() * this.getInventorySize()));
+                    slots.add(entry.getKey() - (pageNumber * this.getInventorySize()));
                 }
             }
         }
@@ -828,7 +855,18 @@ public class MenuUtility<T> {
         this.updateTimeButtons();
     }
 
+    protected void updateButtons(Player player) {
+        this.menuRenderer.setMenuItemsToPage(this.getPageNumber());
+
+        this.redrawInventory(player);
+        this.updateTimeButtons(player);
+    }
+
     protected void updateTimeButtons() {
+        updateTimeButtons(null);
+    }
+
+    protected void updateTimeButtons(Player player) {
         boolean cancelTask = false;
 
         if (this.buttonAnimation != null && this.buttonAnimation.isRunning()) {
@@ -836,10 +874,11 @@ public class MenuUtility<T> {
             cancelTask = true;
         }
         if (cancelTask) {
-            updateButtonsInList();
+            updateButtonsInList(player);
             this.getTimeWhenUpdatesButtons().clear();
         }
     }
+
 
     protected void setMetadataKey(final String setPlayerMetadataKey) {
         this.playerMetadataKey = setPlayerMetadataKey;
@@ -936,8 +975,8 @@ public class MenuUtility<T> {
         this.inventory = this.inventoryRender.redraw();
     }
 
-    protected void redrawInventory(boolean shared) {
-        this.inventory = this.inventoryRender.redraw(shared);
+    protected void redrawInventory(Player player) {
+        this.inventoryRender.redraw(player, true);
     }
 
     protected Inventory getInventory() {
@@ -949,8 +988,12 @@ public class MenuUtility<T> {
     }
 
     protected void updateButtonsInList() {
+        updateButtonsInList(null);
+    }
+
+    protected void updateButtonsInList(Player player) {
         if (this.buttonAnimation == null || !this.buttonAnimation.isRunning()) {
-            this.buttonAnimation = new ButtonAnimation<>(this);
+            this.buttonAnimation = new ButtonAnimation<>(player, this);
             this.buttonAnimation.runTask(this.animateButtonTime);
         }
     }

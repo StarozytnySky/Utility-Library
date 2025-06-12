@@ -18,5 +18,5 @@ public enum MenuMetadataKey {
 	 */
 	MENU_OPEN_LOCATION,
 
-	NAVIGATION_CLICK
+	PAGE_CHANGE
 }

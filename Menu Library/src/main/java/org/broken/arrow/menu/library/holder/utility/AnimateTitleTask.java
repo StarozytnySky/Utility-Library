@@ -55,7 +55,7 @@ public class AnimateTitleTask<T> extends BukkitRunnable {
         Function<?> animateTitle;
 
         if (player != null) {
-                if (!player.isOnline() || player.getOpenInventory() == null) {
+                if (!player.isOnline()) {
                     cancelled = true;
                     cancel();
                     menuUtility.updateTitle(player);
@@ -69,7 +69,7 @@ public class AnimateTitleTask<T> extends BukkitRunnable {
         }
 
         Object text = animateTitle.apply();
-        if (text == null || (ServerVersion.atLeast(ServerVersion.V1_9) && isCancelled())) {
+        if (!player.getOpenInventory().getTopInventory().equals(menuUtility.getPlayerMenuCache().getPlayerData(player).getInventory()) || text == null || (ServerVersion.atLeast(ServerVersion.V1_9) && isCancelled())) {
             cancelled = true;
             cancel();
             if (player != null) {
@@ -80,7 +80,7 @@ public class AnimateTitleTask<T> extends BukkitRunnable {
             return;
         }
         if (!text.equals("")) {
-            System.out.println("DEBUG: Update title "  + text);
+            //System.out.println("DEBUG: Update title "  + text);
             if (player != null) {
                 menuUtility.updateTitle(player, text);
             } else
