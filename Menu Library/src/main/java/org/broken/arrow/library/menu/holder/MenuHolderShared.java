@@ -212,9 +212,9 @@ public abstract class MenuHolderShared<T> extends HolderUtility<T> {
 			inv.setItem(slot, item);
 			MenuDataUtility<T> menuData = getMenuData(null, page);
 			if (menuData != null) {
-				ButtonData<T> buttonData = menuData.getButton(slot);
+				ButtonData<T> buttonData = menuData.getButton(getSlot(slot));
 				if (buttonData != null) {
-					menuData.putButton(slot, new ButtonData<>(item, buttonData.getMenuButton(), buttonData.getObject()));
+					menuData.putButton(getSlot(slot), new ButtonData<>(item, buttonData.getMenuButton(), buttonData.getObject()));
 					putAddedButtonsCache(page, menuData);
 					logger.info("DEBUG: Updated inventory state for page " + page + ", slot " + slot + ", item: " + (item != null ? item.getType() : "null"));
 				}
@@ -359,6 +359,10 @@ public abstract class MenuHolderShared<T> extends HolderUtility<T> {
 					System.out.println("Put button item " + item.getType().name());
 					System.out.println("Put button value " + button.getId());
 					menuData.putButton(slot, new ButtonData<>(item, button, null));
+
+					if (button.shouldUpdateButtons()) {
+						getButtonsToUpdate().add(button);
+					}
 					logger.info("DEBUG: Set and cached button at slot " + slot + ", item: " + item.getType() + ", page: " + page);
 				} else {
 					logger.info("DEBUG: Null item for button at slot " + slot + ", page: " + page);
@@ -384,18 +388,17 @@ public abstract class MenuHolderShared<T> extends HolderUtility<T> {
 		int page = savePlayerPage ? data.getCurrentPage() : 0;
 		data.setCurrentPage(page);
 		Inventory menu = sharedPages.get(page);
-		final Map<Integer, ButtonData<T>> buttonsToUpdate = this.getButtonsToUpdate(page);
 		player.openInventory(menu);
 		onMenuOpenPlaySound(player);
 
-		if (!buttonsToUpdate.isEmpty()) {
+		if (!getButtonsToUpdate().isEmpty()) {
 			System.out.println("DEBUG: Updating buttons for player " + player.getName() + " on page " + page);
 			startPlayerButtonAnimation(player);
 		} else {
 			System.out.println("DEBUG: No buttons to update for player " + player.getName() + " on page " + page);
 		}
 
-		if (!buttonsToUpdate.isEmpty())
+		if (!getButtonsToUpdate().isEmpty())
 			updateButtonsInList();
 
 		//runAnimateTitle();
@@ -501,11 +504,15 @@ public abstract class MenuHolderShared<T> extends HolderUtility<T> {
 
 		if (menuButton != null) {
 			T fillItem = getFillItem(fillSlot);
+			if (menuButton.shouldUpdateButtons()) {
+				getButtonsToUpdate().add(menuButton);
+			}
+			// Wzoruj się na MenuHolderPage: null dla fillSlots, menuButton dla getButtonAt
 			boolean shallAddMenuButton = !isLastFillSlot && isFillSlot(slot) && this.getListOfFillItems() != null && !this.getListOfFillItems().isEmpty();
-			menuDataUtility.putButton(slot, menuButton, buttonDataWrapper -> buttonDataWrapper
-					.setItemStack(result)
-					.setFillButton(shallAddMenuButton)
-					.setObject(fillItem));
+			if (menuButton.shouldUpdateButtons()) this.getButtonsToUpdate().add(menuButton);
+
+			final ButtonData<T> buttonData = new ButtonData<>(result, shallAddMenuButton ? null : menuButton, fillItem);
+			menuDataUtility.putButton(this.getSlot(slot), buttonData, shallAddMenuButton ? menuButton : null);
 			logger.info("DEBUG: Setting ButtonData for slot " + slot + ", item: " + (result != null ? result.getType() : "null") + ", menuButton: " + (menuButton != null ? menuButton.getClass().getSimpleName() : "null") + ", shallAddMenuButton: " + shallAddMenuButton);
 		}
 	}
@@ -600,10 +607,8 @@ public abstract class MenuHolderShared<T> extends HolderUtility<T> {
 	 * @param player the player to start the animation for
 	 */
 	public void startPlayerButtonAnimation(Player player) {
-		final int page = getPlayerPage(player) - 1;
-		final Map<Integer, ButtonData<T>> buttonsToUpdate = this.getButtonsToUpdate(page);
-		if (buttonsToUpdate.isEmpty() || this.getUpdateTime() == -1) {
-			logger.info("DEBUG: could not button animation: " + buttonsToUpdate);
+		if (this.getButtonsToUpdate().isEmpty() || this.getUpdateTime() == -1) {
+			logger.info("DEBUG: could not button animation: " + this.getButtonsToUpdate());
 			return;
 		}
 
@@ -624,15 +629,6 @@ public abstract class MenuHolderShared<T> extends HolderUtility<T> {
 			return new ButtonAnimationData(this.sharedPages.get(page), page);
 		});
 		System.out.println("DEBUG: Started PlayerButtonAnimation for player " + player.getName());
-	}
-
-	@Nonnull
-	private Map<Integer, ButtonData<T>> getButtonsToUpdate(final int page) {
-		final MenuDataUtility<T> menuData = getMenuData(null, page);
-		if (menuData == null) {
-			return new HashMap<>();
-		}
-		return menuData.getButtonsToUpdate();
 	}
 
 	/**
