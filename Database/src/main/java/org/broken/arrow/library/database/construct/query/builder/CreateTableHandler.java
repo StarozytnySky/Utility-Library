@@ -14,6 +14,7 @@ import org.broken.arrow.library.database.construct.query.utlity.SqlExpressionTyp
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
 /**
@@ -104,6 +105,18 @@ public class CreateTableHandler {
     }
 
     /**
+     * Adds column definitions to the {@code CREATE TABLE} statement.
+     *
+     * @param column the list of {@link ColumnManager} containing the column definitions
+     * @return this handler instance for method chaining
+     */
+    public CreateTableHandler addAllColumns(List<Column> column) {
+        selectorWrapper = new TableSelectorWrapper(this, new TableSelector(this.queryBuilder, new TableColumnCache()));
+        selectorWrapper.select(column);
+        return this;
+    }
+
+    /**
      * Returns all columns currently defined for the new table.
      *
      * @return a list of {@link Column} objects, or an empty list if none are defined
@@ -126,9 +139,10 @@ public class CreateTableHandler {
             return selectorWrapper.getTableSelector().getTablesColumnsBuilder().getColumns().stream()
                     .filter(column -> ((TableColumn) column).isPrimaryKey()).collect(Collectors.toList());
         }
-        if (selector != null)
+        if (selector != null) {
             return selector.getSelector().getSelectBuilder().getColumns().stream()
                     .filter(SQLConstraints::isPrimary).collect(Collectors.toList());
+        }
         return new ArrayList<>();
     }
 
@@ -176,11 +190,27 @@ public class CreateTableHandler {
 
         if (selectorDataTable != null) {
             sql.append(" (");
-            sql.append(selectorDataTable.getSelectBuilder().build());
+            List<Column> primaryColumns = getPrimaryColumns();
+            if (primaryColumns.size() > 1) {
+                sql.append(selectorDataTable.getSelectBuilder().buildCampsiteKey());
+                sql.append(", ").append(" PRIMARY KEY (").append(buildComposite(primaryColumns)).append(")");
+            }else {
+                sql.append(selectorDataTable.getSelectBuilder().build());
+            }
             sql.append(")");
         }
-
         return sql + "";
+    }
+
+
+    private String buildComposite(final List<Column> primaryColumns) {
+        if (primaryColumns.isEmpty()) return "";
+        final StringJoiner joiner = new StringJoiner(", ");
+
+        for (Column column : primaryColumns) {
+            joiner.add(column.getColumnName());
+        }
+        return joiner + "";
     }
 
     /**

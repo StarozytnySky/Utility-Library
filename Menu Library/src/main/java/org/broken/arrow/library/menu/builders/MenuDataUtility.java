@@ -1,13 +1,20 @@
 package org.broken.arrow.library.menu.builders;
 
 import org.broken.arrow.library.menu.button.MenuButton;
+import org.bukkit.inventory.ItemStack;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * A utility class for managing menu data such as buttons and their fill behavior within specific slots.
@@ -21,212 +28,269 @@ import java.util.function.Consumer;
  */
 public final class MenuDataUtility<T> {
 
-	private final Map<Integer, ButtonData<T>> buttons = new HashMap<>();
-	private Map<Integer, MenuButton> fillMenuButtons;
-	private MenuButton fillMenuButton;
+    private final Map<Integer, ButtonData<T>> buttons = new HashMap<>();
+    private Map<Integer, MenuButton> fillMenuButtons;
+    private MenuButton fillMenuButton;
 
-	/**
-	 * Adds a button to the specified slot and uses a matching fill button for that slot if available.
-	 *
-	 * @param slot       the slot to place the button in
-	 * @param buttonData the data for the button
-	 * @return the current instance for chaining
-	 */
-	public MenuDataUtility<T> putButton(final int slot, @Nonnull final ButtonData<T> buttonData) {
-		return putButton(slot, buttonData, this.getFillMenuButton(slot));
-	}
+    /**
+     * Adds a button to the specified slot and uses a matching fill button for that slot if available.
+     *
+     * @param slot       the slot to place the button in
+     * @param buttonData the data for the button
+     * @return the current instance for chaining
+     */
+    public MenuDataUtility<T> putButton(final int slot, @Nonnull final ButtonData<T> buttonData) {
+        return putButton(slot, buttonData, this.getFillMenuButton(slot));
+    }
 
-	/**
-	 * Adds a button to the specified slot with an optional custom fill button.
-	 * <p>
-	 * If the provided fill button is {@code null}, it is ignored.
-	 * If it matches the {@link #fillMenuButton}, it will not be added to the per-slot fill map.
-	 * Otherwise, it is stored in the {@link #fillMenuButtons} map.
-	 * </p>
-	 *
-	 * @param slot           the slot to place the button in
-	 * @param buttonData     the data for the button
-	 * @param fillMenuButton an optional fill button for the given slot
-	 * @return the current instance for chaining
-	 */
-	public MenuDataUtility<T> putButton(final int slot, @Nonnull final ButtonData<T> buttonData, @Nullable final MenuButton fillMenuButton) {
-		buttons.put(slot, buttonData);
-		if (fillMenuButton != null) {
-			if (this.getFillMenuButton() != null && this.getFillMenuButton().getId() != fillMenuButton.getId()) {
-				if (this.fillMenuButtons == null)
-					this.fillMenuButtons = new HashMap<>();
-				this.fillMenuButtons.put(slot, fillMenuButton);
-			} else
-				return this.setFillMenuButton(fillMenuButton);
-		}
-		return this;
-	}
+    /**
+     * Adds a button to the specified slot with an optional custom fill button.
+     * <p>
+     * If the provided fill button is {@code null}, it is ignored.
+     * If it matches the {@link #fillMenuButton}, it will not be added to the per-slot fill map.
+     * Otherwise, it is stored in the {@link #fillMenuButtons} map.
+     * </p>
+     *
+     * @param slot           the slot to place the button in
+     * @param buttonData     the data for the button
+     * @param fillMenuButton an optional fill button for the given slot
+     * @return the current instance for chaining
+     */
+    public MenuDataUtility<T> putButton(final int slot, @Nonnull final ButtonData<T> buttonData, @Nullable final MenuButton fillMenuButton) {
+        buttons.put(slot, buttonData);
+        if (fillMenuButton != null) {
+            if (this.getFillMenuButton() != null && this.getFillMenuButton().getId() != fillMenuButton.getId()) {
+                if (this.fillMenuButtons == null)
+                    this.fillMenuButtons = new HashMap<>();
+                this.fillMenuButtons.put(slot, fillMenuButton);
+            } else
+                return this.setFillMenuButton(fillMenuButton);
+        }
+        return this;
+    }
 
-	/**
-	 * Adds a {@link MenuButton} to the specified slot and allows customization of its associated {@link ButtonData} via a {@link ButtonDataWrapper}.
-	 * <p>
-	 * This is useful when dynamically constructing buttons with inline configuration logic.
-	 * </p>
-	 * <p>
-	 * If {@link ButtonDataWrapper#isFillButton()} is {@code true}, the method checks whether the provided button should be treated
-	 * as the shared {@link #fillMenuButton} or stored in the per-slot {@link #fillMenuButtons} map:
-	 * </p>
-	 * <ul>
-	 *   <li>If the shared {@code fillMenuButton} is {@code null} or matches the provided button, it is set as the shared fill button.</li>
-	 *   <li>Otherwise, the provided button is added to the {@code fillMenuButtons} map for the specific slot.</li>
-	 * </ul>
-	 *
-	 * @param slot        the slot to place the button in.
-	 * @param menuButton  the button to display.
-	 * @param buttonData  a consumer to configure the {@link ButtonDataWrapper} for this button.
-	 * @return the current instance for chaining.
-	 */
-	public MenuDataUtility<T> putButton(final int slot, @Nonnull  final MenuButton menuButton ,@Nonnull final Consumer<ButtonDataWrapper<T>> buttonData) {
-		final ButtonDataWrapper<T> buttonDataWrapper = new ButtonDataWrapper<>(menuButton);
-		buttonData.accept(buttonDataWrapper);
-		buttons.put(slot, buttonDataWrapper.build());
+    /**
+     * Adds a {@link MenuButton} to the specified slot and allows customization of its associated {@link ButtonData} via a {@link ButtonDataWrapper}.
+     * <p>
+     * This is useful when dynamically constructing buttons with inline configuration logic.
+     * </p>
+     * <p>
+     * If {@link ButtonDataWrapper#isFillButton()} is {@code true}, the method checks whether the provided button should be treated
+     * as the shared {@link #fillMenuButton} or stored in the per-slot {@link #fillMenuButtons} map:
+     * </p>
+     * <ul>
+     *   <li>If the shared {@code fillMenuButton} is {@code null} or matches the provided button, it is set as the shared fill button.</li>
+     *   <li>Otherwise, the provided button is added to the {@code fillMenuButtons} map for the specific slot.</li>
+     * </ul>
+     *
+     * @param slot       the slot to place the button in.
+     * @param menuButton the button to display.
+     * @param buttonData a consumer to configure the {@link ButtonDataWrapper} for this button.
+     * @return the current instance for chaining.
+     */
+    public MenuDataUtility<T> putButton(final int slot, @Nonnull final MenuButton menuButton, @Nonnull final Consumer<ButtonDataWrapper<T>> buttonData) {
+        final ButtonDataWrapper<T> buttonDataWrapper = new ButtonDataWrapper<>(menuButton);
+        buttonData.accept(buttonDataWrapper);
+        buttons.put(slot, buttonDataWrapper.build());
 
-		if (buttonDataWrapper.isFillButton()) {
-			if (this.getFillMenuButton() != null && this.getFillMenuButton().getId() != menuButton.getId()) {
-				if (this.fillMenuButtons == null)
-					this.fillMenuButtons = new HashMap<>();
-				this.fillMenuButtons.put(slot, menuButton);
-			} else
-				return this.setFillMenuButton(menuButton);
-		}
-		return this;
-	}
+        if (buttonDataWrapper.isFillButton()) {
+            if (this.getFillMenuButton() != null && this.getFillMenuButton().getId() != menuButton.getId()) {
+                if (this.fillMenuButtons == null)
+                    this.fillMenuButtons = new HashMap<>();
+                this.fillMenuButtons.put(slot, menuButton);
+            } else
+                return this.setFillMenuButton(menuButton);
+        }
+        return this;
+    }
 
-	/**
-	 * Sets a shared fill menu button that can be reused across all slots unless overridden.
-	 *
-	 * @param fillMenuButton the fill menu button to use as default
-	 * @return the current instance for chaining
-	 */
-	public MenuDataUtility<T> setFillMenuButton(final MenuButton fillMenuButton) {
-		this.fillMenuButton = fillMenuButton;
-		return this;
-	}
+    /**
+     * Adds a {@link MenuButton} to the specified slot and allows customization of its associated {@link ButtonData} via a {@link ButtonDataWrapper}.
+     * <p>
+     * This is useful when dynamically constructing buttons with inline configuration logic.
+     * </p>
+     * <p>
+     * If {@link ButtonDataWrapper#isFillButton()} is {@code true}, the method checks whether the provided button should be treated
+     * as the shared {@link #fillMenuButton} or stored in the per-slot {@link #fillMenuButtons} map:
+     * </p>
+     * <ul>
+     *   <li>If the shared {@code fillMenuButton} is {@code null} or matches the provided button, it is set as the shared fill button.</li>
+     *   <li>Otherwise, the provided button is added to the {@code fillMenuButtons} map for the specific slot.</li>
+     * </ul>
+     *
+     * @param slot       the slot to place the button in.
+     * @param menuButton the new button to display if the slot missing in the cache.
+     * @param buttonData a consumer to configure the {@link ButtonDataWrapper} for this button.
+     * @return the current instance for chaining.
+     */
+    public MenuDataUtility<T> updateButton(final int slot, @Nonnull final MenuButton menuButton, @Nonnull final Consumer<ButtonDataWrapper<T>> buttonData) {
+        final ButtonData<T> currentButtonData = buttons.get(slot);
 
-	/**
-	 * Returns the shared fill menu button if it matches the given button.
-	 *
-	 * @param button the button to compare with the shared fill menu button
-	 * @return the shared fill menu button if it's the same, otherwise {@code null}
-	 */
-	@Nullable
-	public MenuButton getSimilarFillMenuButton(@Nullable final MenuButton button) {
-		final MenuButton menuButton = this.fillMenuButton;
-		if (menuButton == null || button == null) return null;
-		if (menuButton.getId() != button.getId()) return null;
+        final ButtonDataWrapper<T> buttonDataWrapper = currentButtonData != null ? new ButtonDataWrapper<>(currentButtonData) : new ButtonDataWrapper<>(menuButton);
+        buttonData.accept(buttonDataWrapper);
+        buttons.put(slot, buttonDataWrapper.build());
 
-		return menuButton;
-	}
+        if (buttonDataWrapper.isFillButton()) {
+            if (this.getFillMenuButton() != null && this.getFillMenuButton().getId() != menuButton.getId()) {
+                if (this.fillMenuButtons == null)
+                    this.fillMenuButtons = new HashMap<>();
+                this.fillMenuButtons.put(slot, menuButton);
+            } else
+                return this.setFillMenuButton(menuButton);
+        }
+        return this;
+    }
 
-	/**
-	 * Returns the fill menu button for a specific slot, matching the provided button.
-	 *
-	 * @param menuButton the button to match against
-	 * @return the matching fill menu button for that slot, or {@code null} if not found
-	 */
-	@Nullable
-	public MenuButton getFillMenuButton(@Nonnull MenuButton menuButton) {
-		MenuButton fillButton = this.getFillMenuButton();
-		if (fillButton != null && fillButton.getId() == menuButton.getId()) {
-			return fillButton;
-		}
-		if (fillMenuButtons != null) {
-			for (MenuButton button : getFillMenuButtons().values())
-				if (button.getId() == menuButton.getId())
-					return button;
-		}
-		return null;
-	}
+    /**
+     * Sets a shared fill menu button that can be reused across all slots unless overridden.
+     *
+     * @param fillMenuButton the fill menu button to use as default
+     * @return the current instance for chaining
+     */
+    public MenuDataUtility<T> setFillMenuButton(final MenuButton fillMenuButton) {
+        this.fillMenuButton = fillMenuButton;
+        return this;
+    }
 
-	/**
-	 * Gets the fill menu button associated with the given slot, if defined.
-	 * Falls back to the shared fill button if a slot-specific one isn't present.
-	 *
-	 * @param slot the slot index
-	 * @return the fill menu button for the slot, or the shared one if not explicitly defined
-	 */
-	@Nullable
-	public MenuButton getFillMenuButton(int slot) {
-		MenuButton menuButton = null;
-		if (fillMenuButtons != null)
-			menuButton = fillMenuButtons.get(slot);
-		if (menuButton == null)
-			menuButton = this.getFillMenuButton();
-		return menuButton;
-	}
+    /**
+     * Returns the shared fill menu button if it matches the given button.
+     *
+     * @param button the button to compare with the shared fill menu button
+     * @return the shared fill menu button if it's the same, otherwise {@code null}
+     */
+    @Nullable
+    public MenuButton getSimilarFillMenuButton(@Nullable final MenuButton button) {
+        final MenuButton menuButton = this.fillMenuButton;
+        if (menuButton == null || button == null) return null;
+        if (menuButton.getId() != button.getId()) return null;
 
-	/**
-	 * Internal accessor for the global fill button.
-	 *
-	 * @return the fill menu button, or {@code null} if none is set.
-	 */
-	@Nullable
-	private MenuButton getFillMenuButton() {
-		return fillMenuButton;
-	}
+        return menuButton;
+    }
 
-	/**
-	 * Retrieves the button data associated with a specific slot.
-	 *
-	 * @param slot the slot index.
-	 * @return the button data for that slot, or {@code null} if not set
-	 */
-	@Nullable
-	public ButtonData<T> getButton(final int slot) {
-		return buttons.get(slot);
-	}
+    /**
+     * Returns the fill menu button for a specific slot, matching the provided button.
+     *
+     * @param menuButton the button to match against
+     * @return the matching fill menu button for that slot, or {@code null} if not found
+     */
+    @Nullable
+    public MenuButton getFillMenuButton(@Nonnull MenuButton menuButton) {
+        MenuButton fillButton = this.getFillMenuButton();
+        if (fillButton != null && fillButton.getId() == menuButton.getId()) {
+            return fillButton;
+        }
+        if (fillMenuButtons != null) {
+            for (MenuButton button : getFillMenuButtons().values())
+                if (button.getId() == menuButton.getId())
+                    return button;
+        }
+        return null;
+    }
 
-	/**
-	 * Returns an unmodifiable view of all registered buttons.
-	 *
-	 * @return the button map.
-	 */
-	public Map<Integer, ButtonData<T>> getButtons() {
-		return Collections.unmodifiableMap(buttons);
-	}
+    /**
+     * Gets the fill menu button associated with the given slot, if defined.
+     * Falls back to the shared fill button if a slot-specific one isn't present.
+     *
+     * @param slot the slot index
+     * @return the fill menu button for the slot, or the shared one if not explicitly defined
+     */
+    @Nullable
+    public MenuButton getFillMenuButton(int slot) {
+        MenuButton menuButton = null;
+        if (fillMenuButtons != null)
+            menuButton = fillMenuButtons.get(slot);
+        if (menuButton == null)
+            menuButton = this.getFillMenuButton();
+        return menuButton;
+    }
 
-	/**
-	 * Returns an unmodifiable view of the per-slot fill menu buttons.
-	 * If none are defined, returns an empty map.
-	 *
-	 * @return the fill menu button map.
-	 */
-	public Map<Integer, MenuButton> getFillMenuButtons() {
-		if (fillMenuButtons == null)
-			return new HashMap<>();
-		return Collections.unmodifiableMap(fillMenuButtons);
-	}
+    /**
+     * Internal accessor for the global fill button.
+     *
+     * @return the fill menu button, or {@code null} if none is set.
+     */
+    @Nullable
+    private MenuButton getFillMenuButton() {
+        return fillMenuButton;
+    }
 
-	/**
-	 * Retrieves the {@link MenuButton} shown at the given slot,
-	 * either from button data or as a fallback fill button.
-	 *
-	 * @param slot the slot index
-	 * @return the menu button for that slot, or {@code null} if none is applicable
-	 */
-	@Nullable
-	public MenuButton getMenuButton(final int slot) {
-		ButtonData<T> buttonData = this.getButton(slot);
-		MenuButton menuButton = null;
-		if (buttonData != null) {
-			menuButton = buttonData.getMenuButton();
-			if (menuButton == null)
-				menuButton = getFillMenuButton(slot);
-		}
-		return menuButton;
-	}
+    /**
+     * Retrieves the button data associated with a specific slot.
+     *
+     * @param slot the slot index.
+     * @return the button data for that slot, or {@code null} if not set
+     */
+    @Nullable
+    public ButtonData<T> getButton(final int slot) {
+        return buttons.get(slot);
+    }
 
-	@Override
-	public String toString() {
-		return "MenuDataUtility{" +
-				"buttons=" + buttons +
-				", fillMenuButton=" + fillMenuButton +
-				", fillMenuButtons=" + fillMenuButtons +
-				'}';
-	}
+    /**
+     * Returns an unmodifiable view of all registered buttons.
+     *
+     * @return the button map.
+     */
+    public Map<Integer, ButtonData<T>> getButtons() {
+        return Collections.unmodifiableMap(buttons);
+    }
+
+    /**
+     * Returns an unmodifiable view of the per-slot fill menu buttons.
+     * If none are defined, returns an empty map.
+     *
+     * @return the fill menu button map.
+     */
+    public Map<Integer, MenuButton> getFillMenuButtons() {
+        if (fillMenuButtons == null)
+            return new HashMap<>();
+        return Collections.unmodifiableMap(fillMenuButtons);
+    }
+
+    /**
+     * Retrieve a set of buttons that should be updated.
+     *
+     * @return a map of menu buttons that currently shall be updated.
+     */
+    public Map<Integer, ButtonData<T>> getButtonsToUpdate() {
+        final Map<Integer, ButtonData<T>> buttonList = new LinkedHashMap<>();
+        buttons.entrySet().stream().filter(MenuDataUtility::shouldBeUpdated)
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(buttonDataEntry ->
+                        buttonList.put(buttonDataEntry.getKey(), buttonDataEntry.getValue())
+                );
+        return buttonList;
+    }
+
+    /**
+     * Retrieves the {@link MenuButton} shown at the given slot,
+     * either from button data or as a fallback fill button.
+     *
+     * @param slot the slot index
+     * @return the menu button for that slot, or {@code null} if none is applicable
+     */
+    @Nullable
+    public MenuButton getMenuButton(final int slot) {
+        ButtonData<T> buttonData = this.getButton(slot);
+        MenuButton menuButton = null;
+        if (buttonData != null) {
+            menuButton = buttonData.getMenuButton();
+            if (menuButton == null)
+                menuButton = getFillMenuButton(slot);
+        }
+        return menuButton;
+    }
+
+    @Override
+    public String toString() {
+        return "MenuDataUtility{" +
+                "buttons=" + buttons +
+                ", fillMenuButton=" + fillMenuButton +
+                ", fillMenuButtons=" + fillMenuButtons +
+                '}';
+    }
+
+    private static <T> boolean shouldBeUpdated(Map.Entry<Integer, ButtonData<T>> buttonData) {
+        return buttonData.getValue().getMenuButton() != null && buttonData.getValue().getMenuButton().shouldUpdateButtons();
+    }
+
 }

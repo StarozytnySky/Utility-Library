@@ -9,23 +9,33 @@ import javax.annotation.Nullable;
 /**
  * A wrapper for configuring {@link ButtonData} in a controlled manner.
  * <p>
- * This class allows internal customization of button properties without exposing
- * unnecessary complexity or mutation options to the end user.
  * It helps decouple setup logic from direct {@link ButtonData} construction.
  * </p>
  *
- * @param <T>  The type of data being rendered as the object connected to the item.
+ * @param <T> The type of data being rendered as the object connected to the item.
  */
 public class ButtonDataWrapper<T> {
-    private final MenuButton menuButton;
-    private  ItemStack itemStack;
-    private  boolean isFillButton;
-    private  T object;
+    private MenuButton menuButton;
+    private ItemStack itemStack;
+    private boolean isFillButton;
+    private T object;
 
     /**
      * Constructs a new {@code ButtonDataWrapper} for the specified menu button.
      *
-     * @param menuButton the menu button associated with this wrapper; must not be {@code null}.
+     * @param buttonData the menu button associated with this wrapper, must not be {@code null}.
+     */
+    public ButtonDataWrapper(@Nonnull final ButtonData<T> buttonData) {
+        this.menuButton = buttonData.getMenuButton();
+        this.itemStack = buttonData.getItemStack();
+        this.isFillButton = buttonData.isFillButton();
+        this.object = buttonData.getObject();
+    }
+
+    /**
+     * Constructs a new {@code ButtonDataWrapper} for the specified menu button.
+     *
+     * @param menuButton the menu button associated with this wrapper, must not be {@code null}.
      */
     public ButtonDataWrapper(@Nonnull final MenuButton menuButton) {
         this.menuButton = menuButton;
@@ -34,10 +44,19 @@ public class ButtonDataWrapper<T> {
     /**
      * Gets the {@link MenuButton} associated with this wrapper.
      *
-     * @return the menu button; never {@code null}.
+     * @return the menu button, never {@code null}.
      */
     public MenuButton getMenuButton() {
         return menuButton;
+    }
+
+    /**
+     * Set the {@link MenuButton} associated with this wrapper.
+     *
+     * @param menuButton the menu button instance.
+     */
+    public void setMenuButton(@Nonnull final MenuButton menuButton) {
+        this.menuButton = menuButton;
     }
 
     /**

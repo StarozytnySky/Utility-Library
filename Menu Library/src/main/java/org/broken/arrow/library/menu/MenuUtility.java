@@ -7,6 +7,7 @@ import org.broken.arrow.library.menu.builders.MenuDataUtility;
 import org.broken.arrow.library.menu.button.MenuButton;
 import org.broken.arrow.library.menu.cache.MenuCache;
 import org.broken.arrow.library.menu.cache.MenuCacheKey;
+import org.broken.arrow.library.menu.event.update.UpdateEvent;
 import org.broken.arrow.library.menu.holder.HolderUtility;
 import org.broken.arrow.library.menu.holder.MenuHolder;
 import org.broken.arrow.library.menu.holder.MenuHolderPage;
@@ -57,7 +58,6 @@ public class MenuUtility<T> {
 
     private final MenuRenderer<T> menuRenderer;
     private final CheckItemsInsideMenu checkItemsInsideMenu;
-    private final List<MenuButton> buttonsToUpdate = new ArrayList<>();
     private final Map<Integer, MenuDataUtility<T>> pagesOfButtonsData = new HashMap<>();
     private final Map<Integer, Long> timeWhenUpdatesButtons = new HashMap<>();
     private final MenuInteractionChecks<T> menuInteractionChecks;
@@ -73,6 +73,7 @@ public class MenuUtility<T> {
     protected Supplier<JsonObject> titleFunctionJson;
     protected Supplier<String> animateTitle;
     protected Supplier<JsonObject> animateTitleJson;
+    protected  UpdateEvent updateEvent;
 
     protected boolean shallCacheItems;
     protected boolean slotsYouCanAddItems;
@@ -82,6 +83,8 @@ public class MenuUtility<T> {
     protected boolean ignoreItemCheck;
     protected boolean autoTitleCurrentPage;
     protected boolean useColorConversion;
+    protected boolean fullyRefreshButtons;
+    protected boolean updated;
 
     protected int animateButtonTime = 20;
     protected int slotIndex;
@@ -99,6 +102,8 @@ public class MenuUtility<T> {
     private String playerMetadataKey;
 
     private int manuallySetPages = -1;
+
+
 
     /**
      * Creates a menu instance.
@@ -128,6 +133,7 @@ public class MenuUtility<T> {
         this.updateTime = -1;
         this.menuOpenSound = new SoundUtility().getMenuOpenSound();
         this.checkItemsInsideMenu = new CheckItemsInsideMenu(menuAPI);
+        this.updateEvent = new UpdateEvent();
     }
 
     /**
@@ -196,10 +202,10 @@ public class MenuUtility<T> {
     }
 
     /**
-     * Get if this menu allow shiftclick or not. Defult will
-     * it allow shiftclick.
+     * Get if this menu allow shift-click or not. Default will
+     * it allow shift click.
      *
-     * @return true if shiftclick shall be allowd.
+     * @return true if shift-click shall be allowed.
      */
 
     public boolean isAllowShiftClick() {
@@ -237,6 +243,15 @@ public class MenuUtility<T> {
      */
     public boolean isIgnoreItemCheck() {
         return ignoreItemCheck;
+    }
+
+    /**
+     * Registers a listener that will be invoked on update.
+     *
+     * @param listener the listener to invoke when an update occurs
+     */
+    public void addListener(@Nonnull final Runnable listener) {
+        this.updateEvent.addListener(listener);
     }
 
     /**
@@ -291,7 +306,7 @@ public class MenuUtility<T> {
      * Get slots and items inside the cache, on this page.
      *
      * @param pageNumber of the page you want to get the buttons from.
-     * @return map with all set buttons..
+     * @return map with all set buttons.
      */
     public Map<Integer, ButtonData<T>> getMenuButtons(final int pageNumber) {
         final MenuDataUtility<T> utilityMap = this.pagesOfButtonsData.get(pageNumber);
@@ -317,7 +332,7 @@ public class MenuUtility<T> {
     }
 
     /**
-     * Get slot this menu button is added to, if you want get all slots this button is set to
+     * Get slot this menu button is added to, if you want to get all slots this button is set to
      * use {@link #getButtonSlots(MenuDataUtility, MenuButton)} (MenuButton)}.
      * Because this only return first match.
      *
@@ -369,15 +384,6 @@ public class MenuUtility<T> {
             }
         }
         return slots;
-    }
-
-    /**
-     * Get all buttons some shall update when menu is open.
-     *
-     * @return list of buttons some shall be updated when inventory is open.
-     */
-    public List<MenuButton> getButtonsToUpdate() {
-        return buttonsToUpdate;
     }
 
     /**
@@ -601,6 +607,25 @@ public class MenuUtility<T> {
     @Deprecated
     public int getSlot(final int slot) {
         return (this.getPageNumber() * this.getInventorySize()) + slot;
+    }
+
+    /**
+     * Retrieve if it set to refresh the buttons.
+     *
+     * @return true if it shall refresh the buttons.
+     */
+    public boolean isFullyRefreshButtons() {
+        return fullyRefreshButtons;
+    }
+
+    /**
+     * If it shall fully refresh the set buttons set in the menu when
+     * update the button.
+     *
+     * @param fullyRefreshButtons set to tru if it shall refresh buttons.
+     */
+    public void setFullyRefreshButtons(boolean fullyRefreshButtons) {
+        this.fullyRefreshButtons = fullyRefreshButtons;
     }
 
     /**
@@ -915,8 +940,6 @@ public class MenuUtility<T> {
         final ItemStack result = getItemAtSlot(menuButton, slot, fillSlotIndex, isFillSlot);
 
         if (menuButton != null) {
-            if (menuButton.shouldUpdateButtons()) this.buttonsToUpdate.add(menuButton);
-
             menuDataUtility.putButton(slot, menuButton, tButtonDataWrapper -> tButtonDataWrapper.setItemStack(result));
         }
     }
@@ -959,6 +982,7 @@ public class MenuUtility<T> {
 
         this.redrawInventory();
         this.updateTimeButtons();
+        this.updateEvent.markUpdated();
     }
 
     protected void updateTimeButtons() {
@@ -969,8 +993,8 @@ public class MenuUtility<T> {
             cancelTask = true;
         }
         if (cancelTask) {
-            updateButtonsInList();
             this.getTimeWhenUpdatesButtons().clear();
+            updateButtonsInList();
         }
     }
 
@@ -1124,6 +1148,5 @@ public class MenuUtility<T> {
     public Plugin getPlugin() {
         return menuAPI.getPlugin();
     }
-
 
 }

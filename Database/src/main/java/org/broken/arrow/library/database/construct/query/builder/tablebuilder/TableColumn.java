@@ -84,6 +84,28 @@ public class TableColumn extends Column {
     }
 
     /**
+     * Builds the SQL fragment representing this column's definition,
+     * excluding any {@link SQLConstraints#primaryKey() primary key} constraints.
+     * <p>
+     * This method is intended for generating column definitions in contexts
+     * where primary keys are defined separately (e.g. composite keys or
+     * table-level constraints).
+     *
+     * @return the SQL string fragment for the column definition without
+     *         primary key constraints
+     */
+    public String buildCampsiteKey() {
+        StringJoiner joiner = new StringJoiner(" ");
+        if (this.constraints != null) {
+            for (SQLConstraints constraint : this.constraints) {
+                if (!SQLConstraints.isPrimary(constraint))
+                    joiner.add(constraint.toString());
+            }
+        }
+        return this.getColumnName() + " " + dataType.getValue() + " " + joiner + " ";
+    }
+
+    /**
      * A builder-style helper class to chain the creation of {@link TableColumn} instances
      * and add them to a {@link ColumnManager}.
      */
@@ -112,7 +134,7 @@ public class TableColumn extends Column {
          * @param constraints zero or more SQL constraints for the new column
          * @return a new {@code Separator} wrapping the newly created column
          */
-        public Separator column(@Nonnull final String communeName,@Nonnull final DataType datatype,@Nullable final SQLConstraints... constraints) {
+        public Separator column(@Nonnull final String communeName, @Nonnull final DataType datatype, @Nullable final SQLConstraints... constraints) {
             return new Separator(new TableColumn(this.column.columnManger, communeName, datatype, constraints));
         }
 
@@ -142,4 +164,5 @@ public class TableColumn extends Column {
         }
         return false;
     }
+
 }

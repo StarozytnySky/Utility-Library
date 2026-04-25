@@ -1,25 +1,21 @@
 package org.broken.arrow.library.database.construct.query;
 
-
 import org.broken.arrow.library.database.construct.query.builder.CreateTableHandler;
 import org.broken.arrow.library.database.construct.query.builder.InsertHandler;
 import org.broken.arrow.library.database.construct.query.builder.QueryRemover;
 import org.broken.arrow.library.database.construct.query.builder.UpdateBuilder;
 import org.broken.arrow.library.database.construct.query.builder.WithManger;
-import org.broken.arrow.library.database.construct.query.builder.insertbuilder.InsertBuilder;
 import org.broken.arrow.library.database.construct.query.builder.tablebuilder.AlterTable;
 import org.broken.arrow.library.database.construct.query.builder.wherebuilder.WhereBuilder;
 import org.broken.arrow.library.database.construct.query.columnbuilder.Column;
 import org.broken.arrow.library.database.construct.query.columnbuilder.ColumnManager;
 import org.broken.arrow.library.database.construct.query.utlity.QueryType;
-import org.broken.arrow.library.database.construct.query.utlity.StringUtil;
+
 
 import javax.annotation.Nonnull;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 /**
@@ -64,7 +60,7 @@ import java.util.stream.Collectors;
  */
 public class QueryBuilder {
     private final UpdateBuilder updateBuilder = new UpdateBuilder(this);
-    private final InsertHandler insertHandler = new InsertHandler();
+    private final InsertHandler insertHandler = new InsertHandler(this);
     private final QueryModifier queryModifier = new QueryModifier(this);
     private final CreateTableHandler createTableHandler = new CreateTableHandler(this);
     private final AlterTable alterTable = new AlterTable();
@@ -198,6 +194,18 @@ public class QueryBuilder {
     public void insertInto(String table, Consumer<InsertHandler> callback) {
         callback.accept(insertHandler);
         this.queryType = QueryType.INSERT;
+        this.table = table;
+    }
+
+    /**
+     * Starts building an INSERT INTO query for the specified table with a configuration callback.
+     *
+     * @param table the name of the table to insert into
+     * @param callback callback to configure the insert handler (e.g., setting columns and values)
+     */
+    public void insertOrReplaceInto(String table, Consumer<InsertHandler> callback) {
+        callback.accept(insertHandler);
+        this.queryType = QueryType.INSERT_REPLACE;
         this.table = table;
     }
 
@@ -337,7 +345,7 @@ public class QueryBuilder {
 
         if (queryType == QueryType.UPDATE) {
             return updateBuilder.getIndexedValues();
-        } else if (queryType == QueryType.INSERT || queryType == QueryType.MERGE_INTO || queryType == QueryType.REPLACE_INTO) {
+        } else if (queryType == QueryType.INSERT || queryType == QueryType.MERGE_INTO || queryType == QueryType.REPLACE_INTO || queryType == QueryType.INSERT_REPLACE) {
             return insertHandler.getIndexedValues();
         } else if (queryType == QueryType.SELECT) {
             if (!queryModifier.getWhereBuilder().getValues().isEmpty()) {
@@ -371,7 +379,7 @@ public class QueryBuilder {
 
         if (queryType == QueryType.UPDATE) {
             return updateBuilder.getSelector().getSelectBuilder().getColumns().size();
-        } else if (queryType == QueryType.INSERT) {
+        } else if (queryType == QueryType.INSERT || queryType == QueryType.INSERT_REPLACE) {
             return insertHandler.getInsertValues().size();
         } else if (queryType == QueryType.SELECT) {
             return queryModifier.getSelectBuilder().getColumns().size();
@@ -428,6 +436,7 @@ public class QueryBuilder {
             case UPDATE:
                 createUpdateQuery(sql);
                 break;
+            case INSERT_REPLACE:
             case INSERT:
             case MERGE_INTO:
             case REPLACE_INTO:
@@ -460,7 +469,6 @@ public class QueryBuilder {
         sql.append("SELECT ");
 
         sql.append(queryModifier.getSelectBuilder().getColumns().isEmpty() ? "*" : queryModifier.getSelectBuilder().build());
-
         sql.append(" FROM ").append(queryModifier.getTableWithAlias())
                 .append(queryModifier.getJoinBuilder().build())
                 .append(queryModifier.getWhereBuilder().build())
@@ -490,30 +498,8 @@ public class QueryBuilder {
 
     private void createInsertQuery(final StringBuilder sql) {
         String sqlKeyword = getInsertStart();
-        Set<Map.Entry<Integer, InsertBuilder>> insertValues = insertHandler.getInsertValues().entrySet();
-
-        List<InsertBuilder> insertBuilders = insertValues.stream()
-                .sorted(Comparator.comparingInt(Map.Entry::getKey))
-                .map(Map.Entry::getValue)
-                .collect(Collectors.toList());
-
-        List<String> columnNames = insertBuilders.stream()
-                .map(InsertBuilder::getColumnName)
-                .collect(Collectors.toList());
-
-        sql.append(sqlKeyword).append(table).append(" (")
-                .append(StringUtil.stringJoin(columnNames))
-                .append(") VALUES (");
-
-        if (this.globalEnableQueryPlaceholders) {
-            sql.append(StringUtil.repeat("?,", insertBuilders.size()).replaceAll(",$", ""));
-        } else {
-            List<Object> columnValues = insertBuilders.stream()
-                    .map(InsertBuilder::getColumnValue)
-                    .collect(Collectors.toList());
-            sql.append(StringUtil.stringJoin(columnValues));
-        }
-        sql.append(")");
+        sql.append(sqlKeyword).append(table)
+                .append(this.insertHandler.build());
     }
 
     @Nonnull
@@ -528,6 +514,9 @@ public class QueryBuilder {
                 break;
             case REPLACE_INTO:
                 sqlKeyword = "REPLACE INTO ";
+                break;
+            case INSERT_REPLACE:
+                sqlKeyword = "INSERT OR REPLACE INTO  ";
                 break;
             default:
                 sqlKeyword = "";

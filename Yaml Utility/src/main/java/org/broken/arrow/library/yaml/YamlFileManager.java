@@ -32,6 +32,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,12 +51,13 @@ import java.util.logging.Level;
 public abstract class YamlFileManager {
     private final Logging log = new Logging(YamlFileManager.class);
 
-    private FileConfiguration currentConfig;
+	private FileConfiguration currentConfig;
 	private File currentConfigFile;
 	private final File dataFolder;
 	private boolean shallGenerateFiles;
 	private boolean singleFile;
 	private boolean convertNestedSections;
+	private boolean recursive;
 	private final String path;
 	private final String fileName;
 	private int version;
@@ -92,12 +94,20 @@ public abstract class YamlFileManager {
 		this.shallGenerateFiles = shallGenerateFiles;
 		this.plugin = plugin;
 		this.dataFolder = plugin.getDataFolder();
+
+		String formatedPath = path;
+		if (formatedPath.endsWith("/*")) {
+			recursive = true;
+			formatedPath = path.substring(0, path.length() - 2);
+		}
+
 		if (singleFile)
-			this.fileName = this.getNameOfFile(path);
+			this.fileName = this.getNameOfFile(formatedPath);
 		else
 			this.fileName = "";
-		this.path = this.setExtensionIfExist(path);
-		this.resourcePath = singleFile ? path : this.path;
+
+		this.path = this.setExtensionIfExist(formatedPath);
+		this.resourcePath = singleFile ? formatedPath: this.path;
 		final File folder = this.dataFolder;
 		if (!folder.exists())
 			folder.mkdir();
@@ -585,13 +595,21 @@ public abstract class YamlFileManager {
 				this.saveResource(this.resourcePath);
 			return new File(checkFile.getParent()).listFiles(file -> !file.isDirectory() && file.getName().equals(getFileName(this.getPathWithExtension())));
 		}
+
 		final File folder = new File(this.getDataFolder(), directory);
 		if (!folder.exists() && !directory.isEmpty())
 			folder.mkdirs();
-		if (this.filesFromResource != null)
+		if (this.filesFromResource != null) {
 			createMissingFiles(folder.listFiles(file -> !file.isDirectory() && file.getName().endsWith("." + getExtension())));
-
-		return folder.listFiles(file -> !file.isDirectory() && file.getName().endsWith("." + getExtension()));
+		}
+		File[] files;
+		if (this.recursive) {
+			files = getFilesRecursive(folder);
+		} else {
+			files = folder.listFiles(file ->
+					!file.isDirectory() && file.getName().endsWith("." + getExtension()));
+		}
+		return files;
 	}
 
 	/**
@@ -776,7 +794,11 @@ public abstract class YamlFileManager {
 				final JarEntry entry = entries.nextElement();
 				final String filePath = entry.getName();
 				if (filePath.startsWith(dirname) && filePath.endsWith(this.getExtension())) {
-					filenames.add(filePath);
+                    int baseLength = dirname.length();
+                    int nextSlash = filePath.indexOf('/', baseLength);
+                    if (nextSlash == -1) {
+                        filenames.add(filePath);
+                    }
 				}
 			}
 		} catch (final IOException e) {
@@ -855,25 +877,67 @@ public abstract class YamlFileManager {
 		}
 	}
 
-	private void deSerializeConfig(String path, ConfigurationSection configurationSection, FileConfiguration config, Map<String, Object> fileData) {
-		String nestedKey = "";
-		for (final String yamlKey : configurationSection.getKeys(true)) {
-			String fullPath = path + "." + yamlKey;
-			boolean containMappedValue = this.isConvertNestedSections() && config.contains(fullPath + "._type") && "map".equals(config.getString(fullPath + "._type"));
-			if (containMappedValue) {
-				ConfigurationSection bossSection = config.getConfigurationSection(fullPath);
-				if (bossSection != null && (nestedKey.isEmpty() || !fullPath.contains(nestedKey))) {
-					Map<String, Object> decodedConfigMap = MapYamlConverter.decodeConfig(fullPath, config);
-					nestedKey = fullPath + ".";
-					fileData.put(yamlKey, decodedConfigMap);
-				}
-				continue;
-			}
-			Object object = config.get(fullPath);
-			if (!(object instanceof MemorySection)) {
-				fileData.put(yamlKey, object);
+    private void deSerializeConfig(final String path, final ConfigurationSection configurationSection, final FileConfiguration config, final Map<String, Object> fileData) {
+        Set<String> mapRoots = new HashSet<>();
+
+        for (String yamlKey : configurationSection.getKeys(true)) {
+            String fullPath = path + "." + yamlKey;
+
+            if (yamlKey.endsWith("._type")
+                    && "map".equals(config.getString(fullPath))) {
+                String mapRoot = fullPath.substring(0, fullPath.length() - 6);
+                mapRoots.add(mapRoot);
+            }
+        }
+        for (String mapRoot : mapRoots) {
+            ConfigurationSection section = config.getConfigurationSection(mapRoot);
+            if (section == null) {
+                continue;
+            }
+            final Map<String, Object> decodedMap = MapYamlConverter.decodeConfig(mapRoot, config);
+            final String key = mapRoot.substring(mapRoot.lastIndexOf('.') + 1);
+            fileData.put(key, decodedMap);
+        }
+
+        for (String yamlKey : configurationSection.getKeys(true)) {
+            String fullPath = path + "." + yamlKey;
+            if (yamlKey.endsWith("._type") || isInsideMappedSection(mapRoots, fullPath)) {
+                continue;
+            }
+
+            Object value = config.get(fullPath);
+            if (!(value instanceof MemorySection)) {
+                fileData.put(yamlKey, value);
+            }
+        }
+    }
+
+    private boolean isInsideMappedSection(final Set<String> mapRoots, final String fullPath) {
+        boolean insideMappedSection = false;
+        for (String mapRoot : mapRoots) {
+            if (fullPath.startsWith(mapRoot + ".")) {
+                insideMappedSection = true;
+                break;
+            }
+        }
+        return insideMappedSection;
+    }
+
+	private File[] getFilesRecursive(@Nonnull final File folder) {
+		List<File> result = new ArrayList<>();
+
+		File[] files = folder.listFiles();
+		if (files == null) return new File[0];
+
+		for (File file : files) {
+			if (file.isDirectory()) {
+				result.addAll(Arrays.asList(getFilesRecursive(file)));
+			} else if (file.getName().endsWith("." + getExtension())) {
+				result.add(file);
 			}
 		}
+
+		return result.toArray(new File[0]);
 	}
 
 }

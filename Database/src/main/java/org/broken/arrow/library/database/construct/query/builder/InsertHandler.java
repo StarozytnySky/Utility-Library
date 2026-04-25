@@ -1,11 +1,17 @@
 package org.broken.arrow.library.database.construct.query.builder;
 
+import org.broken.arrow.library.database.construct.query.QueryBuilder;
+import org.broken.arrow.library.database.construct.query.QueryModifier;
 import org.broken.arrow.library.database.construct.query.builder.insertbuilder.InsertBuilder;
 import org.broken.arrow.library.database.construct.query.columnbuilder.Column;
+import org.broken.arrow.library.database.construct.query.columnbuilder.ColumnBuilder;
+import org.broken.arrow.library.database.construct.query.utlity.StringUtil;
 
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+
 /**
  * A utility class for managing column-value pairs for an SQL {@code INSERT} operation.
  * <p>
@@ -20,27 +26,44 @@ import java.util.stream.Collectors;
  */
 public class InsertHandler {
 
-    private final Map<Integer, InsertBuilder> insertValues = new HashMap<>();
+    private final Map<Integer, InsertBuilder> insertValues = new LinkedHashMap<>();
+    private final Map<Integer, Object> values = new LinkedHashMap<>();
+    private final QueryModifier queryModifier;
+    private final QueryBuilder queryBuilder;
     private int columnIndex = 1;
+
+    /**
+     * This handle the inner parts of your insert command.
+     *
+     * @param queryBuilder the top class for build the command.
+     */
+    public InsertHandler(final QueryBuilder queryBuilder) {
+        this.queryBuilder = queryBuilder;
+        this.queryModifier = new QueryModifier(queryBuilder);
+    }
 
     /**
      * Adds a single column-value pair to the handler.
      *
      * @param value the {@link InsertBuilder} containing the column name and value
+     * @return this instance for chaining
      */
-    public void add(InsertBuilder value) {
+    public InsertHandler add(InsertBuilder value) {
         insertValues.put(columnIndex++, value);
+        return this;
     }
 
     /**
      * Adds multiple column-value pairs to the handler.
      *
      * @param values one or more {@link InsertBuilder} instances to add
+     * @return this instance for chaining
      */
-    public void addAll(InsertBuilder... values) {
+    public InsertHandler addAll(InsertBuilder... values) {
         for (InsertBuilder insert : values) {
             this.add(insert);
         }
+        return this;
     }
 
     /**
@@ -50,11 +73,39 @@ public class InsertHandler {
      * </p>
      *
      * @param columnData a map where the key is a {@link Column} and the value is the data to insert
+     * @return this instance for chaining
      */
-    public void addAll(Map<Column, Object> columnData) {
+    public InsertHandler addAll(Map<Column, Object> columnData) {
         for (Map.Entry<Column, Object> insert : columnData.entrySet()) {
             this.add(new InsertBuilder(insert.getKey().getColumnName(), insert.getValue()));
         }
+        return this;
+    }
+
+
+    /**
+     * Adds column from a list of {@link Column} and the values is set to null.
+     * <p>
+     * Each {@link Column} is converted into an {@link InsertBuilder} using its column name.
+     * </p>
+     *
+     * @param columns a map where the key is a {@link Column} and column set to null.
+     * @return this instance for chaining
+     */
+    public InsertHandler addAll(List<Column> columns) {
+        for (Column column : columns) {
+            this.add(new InsertBuilder(column.getColumnName(), null));
+        }
+        return this;
+    }
+
+    /**
+     * Get the modifier like select and similar for modify a table.
+     *
+     * @return the modifies instance for the insert operation.
+     */
+    public QueryModifier getQueryModifier() {
+        return this.queryModifier;
     }
 
     /**
@@ -75,11 +126,64 @@ public class InsertHandler {
      * @return a map of index to column value objects
      */
     public Map<Integer, Object> getIndexedValues() {
-        return insertValues.entrySet().stream()
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        entry -> entry.getValue().getColumnValue()
-                ));
+        return values;
+    }
+
+    /**
+     * Build the inner parts of the query command.
+     *
+     * @return the inner parts of the query.
+     */
+    public String build() {
+        this.values.clear();
+        final StringBuilder sql = new StringBuilder();
+        Map<Integer, InsertBuilder> insertBuilders = this.getInsertValues();
+        if (insertBuilders.isEmpty()) return "";
+        List<String> columnNames = new ArrayList<>();
+        List<Object> columnValues = new ArrayList<>();
+
+        int index = 1;
+        for (Map.Entry<Integer, InsertBuilder> builder : insertBuilders.entrySet()) {
+            columnNames.add(builder.getValue().getColumnName());
+            if (!this.queryBuilder.isGlobalEnableQueryPlaceholders()) {
+                columnValues.add(builder.getValue().getColumnValue());
+            } else {
+                this.values.put(index++,builder.getValue().getColumnValue());
+            }
+        }
+
+        String select = setSelect(sql, columnNames);
+        if (select != null) return select;
+
+        sql.append(" (")
+                .append(StringUtil.stringJoin(columnNames))
+                .append(") VALUES (");
+
+        if (this.queryBuilder.isGlobalEnableQueryPlaceholders()) {
+            sql.append(StringUtil.repeat("?,", insertBuilders.size()).replaceAll(",$", ""));
+        } else {
+            sql.append(StringUtil.stringJoin(columnValues));
+        }
+        sql.append(" )");
+        return sql.toString();
+    }
+
+    private String setSelect(final StringBuilder sql, final List<String> columnNames) {
+        final QueryModifier modifier = getQueryModifier();
+        final ColumnBuilder<Column, Void> selectBuilder = modifier.getSelectBuilder();
+        final String from = modifier.getTable();
+        final String selectSql = selectBuilder.build();
+
+        if (!selectSql.isEmpty() && from != null) {
+            sql.append("(")
+                    .append(StringUtil.stringJoin(columnNames))
+                    .append(") SELECT ")
+                    .append(selectSql)
+                    .append(" FROM ")
+                    .append(from);
+            return sql.toString();
+        }
+        return null;
     }
 
 }

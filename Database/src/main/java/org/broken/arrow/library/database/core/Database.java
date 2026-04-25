@@ -11,9 +11,15 @@ import org.broken.arrow.library.database.builders.wrappers.SaveSetup;
 import org.broken.arrow.library.database.connection.HikariCP;
 import org.broken.arrow.library.database.construct.query.QueryBuilder;
 import org.broken.arrow.library.database.construct.query.builder.CreateTableHandler;
+import org.broken.arrow.library.database.construct.query.builder.comparison.LogicalOperator;
+import org.broken.arrow.library.database.construct.query.builder.wherebuilder.WhereBuilder;
 import org.broken.arrow.library.database.construct.query.columnbuilder.Column;
 import org.broken.arrow.library.database.construct.query.columnbuilder.ColumnManager;
-import org.broken.arrow.library.database.core.databases.*;
+import org.broken.arrow.library.database.core.databases.H2DB;
+import org.broken.arrow.library.database.core.databases.MongoDB;
+import org.broken.arrow.library.database.core.databases.MySQL;
+import org.broken.arrow.library.database.core.databases.PostgreSQL;
+import org.broken.arrow.library.database.core.databases.SQLite;
 import org.broken.arrow.library.database.utility.BatchExecutor;
 import org.broken.arrow.library.database.utility.BatchExecutorUnsafe;
 import org.broken.arrow.library.database.utility.DatabaseCommandConfig;
@@ -38,11 +44,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.logging.Level;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * The main database class that handle the general logic around database queries.
@@ -62,6 +67,7 @@ public abstract class Database {
     private long idleTimeout;
     private long maxLifeTime;
     private int minimumIdle;
+	private BiConsumer<String, PrimaryConstraintWrapper> handleConstraints;
 
     /**
      * The  database instance.
@@ -72,9 +78,6 @@ public abstract class Database {
         if (this instanceof SQLite) {
             this.databaseType = DatabaseType.SQLITE;
         }
-		if (this instanceof MariaDB) {
-			this.databaseType = DatabaseType.MARIA_DB;
-		}
         if (this instanceof MySQL) {
             this.databaseType = DatabaseType.MYSQL;
         }
@@ -116,6 +119,7 @@ public abstract class Database {
     public abstract boolean hasConnectionFailed();
 
     /**
+	 * @return {@code true} if a connection exception was detected; {@code false} otherwise.
      * @deprecated This method is outdated and only checks for connection exceptions.
      * Use {@link #hasConnectionFailed()} instead for clearer semantics.
      * <p>
@@ -168,6 +172,16 @@ public abstract class Database {
      * Create all needed tables if it not exist.
      */
     public void createTables() {
+		this.createTables(null);
+	}
+
+	/**
+	 * Create all needed tables if it not exist.
+	 *
+	 * @param handleConstraints Use this if you set now columns with constraints.
+	 */
+	public void createTables(final BiConsumer<String, PrimaryConstraintWrapper> handleConstraints) {
+		this.handleConstraints = handleConstraints;
         if (tablesCache.isEmpty()) {
             log.log(() -> "You don't have added any tables, so it can't check or create your tables.");
             return;
@@ -411,6 +425,32 @@ public abstract class Database {
         batchExecutor.remove(tableName, value, table::createWhereClauseFromPrimaryColumns);
     }
 
+	/**
+	 * Remove rows from specified database table.
+	 *
+	 * @param tableName   name of the table you want to get data from.
+	 * @param whereClause build your where clause for the conditions needed to match.
+	 */
+	public void remove(@Nonnull final String tableName, @Nonnull final Function<WhereBuilder, LogicalOperator<WhereBuilder>> whereClause) {
+		BatchExecutor<DataWrapper> batchExecutor;
+		Connection connection = this.attemptToConnect();
+		if (connection == null) {
+			return;
+		}
+		if (this.secureQuery)
+			batchExecutor = new BatchExecutor<>(this, connection, new ArrayList<>());
+		else {
+			batchExecutor = new BatchExecutorUnsafe<>(this, connection, new ArrayList<>());
+		}
+		final SqlQueryTable table = this.getTableFromName(tableName);
+
+		if (table == null) {
+			this.log.log(Level.WARNING, () -> "Could not find this table:'" + tableName + "' when attempting to remove your list of primary values. Did you register your table?");
+			return;
+		}
+		batchExecutor.remove(tableName, whereClause);
+	}
+
     /**
      * Drop the table.
      *
@@ -462,7 +502,7 @@ public abstract class Database {
             log.log(() -> "Could not find this table: '" + tableName + "'");
             return false;
         }
-        return batchExecutor.checkIfRowExist(tableName, primaryKeyValue, whereClause -> table.createWhereClauseFromPrimaryColumns(whereClause, "'" + primaryKeyValue + "'"));
+		return batchExecutor.checkIfRowExist(tableName, whereClause -> table.createWhereClauseFromPrimaryColumns(whereClause, "'" + primaryKeyValue + "'"));
     }
 
     /**
@@ -546,6 +586,32 @@ public abstract class Database {
         }
     }
 
+	/**
+	 * Returns the configured constraint handler used during schema migration.
+	 *
+	 * <p>The handler is invoked when newly declared PRIMARY KEY columns are detected.
+	 * It receives:</p>
+	 * <ul>
+	 *     <li>The table name</li>
+	 *     <li>A {@link PrimaryConstraintWrapper} used to define primary key values
+	 *     for existing rows</li>
+	 * </ul>
+	 *
+	 * <p>If no handler is configured, new constraints will not be applied,
+	 * but missing columns may still be created.</p>
+	 *
+	 * <p>Within the handler, {@link PrimaryConstraintWrapper#setUnique(boolean)}
+	 * can be set to {@code true} to allow a UNIQUE constraint fallback
+	 * when primary key values are incomplete.</p>
+	 *
+	 * @return a {@link BiConsumer} that processes primary key migration,
+	 *         or {@code null} if no handler is configured.
+	 */
+	@Nullable
+	public BiConsumer<String, PrimaryConstraintWrapper> getHandleConstraints() {
+		return handleConstraints;
+	}
+
     /**
      * Update the table, if it missing a column or columns.
      *
@@ -617,28 +683,15 @@ public abstract class Database {
         }
     }*/
 
-    private void createMissingColumns(Connection connection, SqlQueryTable queryTable, List<String> existingColumns) {
-        if (existingColumns == null) return;
-        if (connection == null) {
-            log.log(Level.WARNING, () -> "You must set the connection instance.");
-            return;
-        }
-
-
-        for (final Column column : queryTable.getTable().getColumns()) {
-            String columnName = column.getColumnName();
-            if (removeColumns.contains(columnName) || existingColumns.contains(columnName.toLowerCase())) continue;
-            final QueryBuilder queryBuilder = new QueryBuilder();
-            queryBuilder.alterTable(queryTable.getTableName()).add(column);
-            final String query = queryBuilder.build();
-            try (final PreparedStatement statement = connection.prepareStatement(query)) {
-                statement.execute();
-            } catch (final SQLException throwable) {
-                log.log(throwable, () -> "Could not add this '" + columnName + "' missing column. To this table '" + queryTable.getTableName() + "'");
-            }
-        }
-
-    }
+	private void createMissingColumns(final Connection connection, final SqlQueryTable queryTable, final List<String> existingColumns) {
+		if (existingColumns == null) return;
+		if (connection == null) {
+			log.log(Level.WARNING, () -> "You must set the connection instance.");
+			return;
+		}
+		final SchemaMigrationHandler schemaMigration = new SchemaMigrationHandler(this, connection);
+		schemaMigration.createMissingColumns(queryTable, existingColumns);
+	}
 
 
     /**
@@ -667,11 +720,6 @@ public abstract class Database {
                 if (tableQuery.getTableName().isEmpty())
                     return;
                 table = tableQuery.createTable();
-                // MariaDB does not allow TEXT/BLOB columns to be used as PRIMARY KEY without a key length.
-                // Adjust the CREATE TABLE statement to use a bounded VARCHAR for primary key text columns.
-                if (getDatabaseType() == DatabaseType.MARIA_DB || getDatabaseType() == DatabaseType.MYSQL) {
-                    table = adjustCreateTableForMariaDB(table);
-                }
                 statement = connection.prepareStatement(table);
                 statement.executeUpdate();
                 Column column = tableQuery.getPrimaryColumns().stream().findFirst().orElse(null);
@@ -874,28 +922,6 @@ public abstract class Database {
         } catch (final SQLException exception) {
             log.log(Level.WARNING, exception, () -> "Something went wrong, when attempt to close connection.");
         }
-    }
-
-    /**
-     * Adjusts a CREATE TABLE statement to be compatible with MariaDB restrictions around
-     * TEXT/BLOB columns being used in key specifications. MariaDB requires a key length
-     * and does not allow TEXT/BLOB types directly as PRIMARY KEY columns.
-     * This method rewrites inline column definitions like:
-     *   Name TEXT PRIMARY KEY
-     * into:
-     *   Name VARCHAR(191) PRIMARY KEY
-     * Only applied when the active database type is MariaDB.
-     *
-     * @param createSql the original CREATE TABLE SQL
-     * @return the adjusted SQL safe for MariaDB, or the original if no changes are needed
-     */
-    private String adjustCreateTableForMariaDB(String createSql) {
-        if (createSql == null || createSql.isEmpty()) return createSql;
-        // Replace any inline PRIMARY KEY on TEXT/BLOB columns with VARCHAR(191)
-        Pattern inlinePkOnText = Pattern.compile("(\\b[`\"]?\\w+[`\"]?\\s+)(TINYTEXT|TEXT|MEDIUMTEXT|LONGTEXT|TINYBLOB|BLOB|MEDIUMBLOB|LONGBLOB)(\\s+PRIMARY\\s+KEY\\b)", Pattern.CASE_INSENSITIVE);
-        Matcher m = inlinePkOnText.matcher(createSql);
-        String adjusted = m.replaceAll("$1VARCHAR(191)$3");
-        return adjusted;
     }
 
     /**
@@ -1146,4 +1172,15 @@ public abstract class Database {
         log.log(Level.WARNING, () -> "Could not find table " + tableName);
     }
 
+	private void sendLogMessage(final PrimaryConstraintWrapper primaryWrapper, final Map<String, Object> primaryKeys) {
+		if (primaryWrapper.isUnique()) {
+			log.log(Level.FINE, () -> "Primary key values are incomplete (null key or value detected). Provided values: '" + primaryKeys + "'. Primary key will not be created for this row. Unique constraint will be used instead, as configured.");
+		} else {
+			log.log(Level.FINE, () -> "Primary key values are incomplete (null key or value detected). Provided values: '" + primaryKeys + "' . Primary key cannot be created and UNIQUE fallback is disabled. Migration will be aborted.");
+		}
+	}
+
+	private static String getMessage(final String message, final String tableName , final Object columnsToBeModified) {
+		return message + "'" + columnsToBeModified + "'. To this table '" + tableName + "'";
+	}
 }
