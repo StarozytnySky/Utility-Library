@@ -13,11 +13,7 @@ import org.broken.arrow.library.database.construct.query.QueryBuilder;
 import org.broken.arrow.library.database.construct.query.builder.CreateTableHandler;
 import org.broken.arrow.library.database.construct.query.columnbuilder.Column;
 import org.broken.arrow.library.database.construct.query.columnbuilder.ColumnManager;
-import org.broken.arrow.library.database.core.databases.H2DB;
-import org.broken.arrow.library.database.core.databases.MongoDB;
-import org.broken.arrow.library.database.core.databases.MySQL;
-import org.broken.arrow.library.database.core.databases.PostgreSQL;
-import org.broken.arrow.library.database.core.databases.SQLite;
+import org.broken.arrow.library.database.core.databases.*;
 import org.broken.arrow.library.database.utility.BatchExecutor;
 import org.broken.arrow.library.database.utility.BatchExecutorUnsafe;
 import org.broken.arrow.library.database.utility.DatabaseCommandConfig;
@@ -45,6 +41,8 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.logging.Level;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The main database class that handle the general logic around database queries.
@@ -74,6 +72,9 @@ public abstract class Database {
         if (this instanceof SQLite) {
             this.databaseType = DatabaseType.SQLITE;
         }
+		if (this instanceof MariaDB) {
+			this.databaseType = DatabaseType.MARIA_DB;
+		}
         if (this instanceof MySQL) {
             this.databaseType = DatabaseType.MYSQL;
         }
@@ -666,6 +667,11 @@ public abstract class Database {
                 if (tableQuery.getTableName().isEmpty())
                     return;
                 table = tableQuery.createTable();
+                // MariaDB does not allow TEXT/BLOB columns to be used as PRIMARY KEY without a key length.
+                // Adjust the CREATE TABLE statement to use a bounded VARCHAR for primary key text columns.
+                if (getDatabaseType() == DatabaseType.MARIA_DB || getDatabaseType() == DatabaseType.MYSQL) {
+                    table = adjustCreateTableForMariaDB(table);
+                }
                 statement = connection.prepareStatement(table);
                 statement.executeUpdate();
                 Column column = tableQuery.getPrimaryColumns().stream().findFirst().orElse(null);
@@ -868,6 +874,28 @@ public abstract class Database {
         } catch (final SQLException exception) {
             log.log(Level.WARNING, exception, () -> "Something went wrong, when attempt to close connection.");
         }
+    }
+
+    /**
+     * Adjusts a CREATE TABLE statement to be compatible with MariaDB restrictions around
+     * TEXT/BLOB columns being used in key specifications. MariaDB requires a key length
+     * and does not allow TEXT/BLOB types directly as PRIMARY KEY columns.
+     * This method rewrites inline column definitions like:
+     *   Name TEXT PRIMARY KEY
+     * into:
+     *   Name VARCHAR(191) PRIMARY KEY
+     * Only applied when the active database type is MariaDB.
+     *
+     * @param createSql the original CREATE TABLE SQL
+     * @return the adjusted SQL safe for MariaDB, or the original if no changes are needed
+     */
+    private String adjustCreateTableForMariaDB(String createSql) {
+        if (createSql == null || createSql.isEmpty()) return createSql;
+        // Replace any inline PRIMARY KEY on TEXT/BLOB columns with VARCHAR(191)
+        Pattern inlinePkOnText = Pattern.compile("(\\b[`\"]?\\w+[`\"]?\\s+)(TINYTEXT|TEXT|MEDIUMTEXT|LONGTEXT|TINYBLOB|BLOB|MEDIUMBLOB|LONGBLOB)(\\s+PRIMARY\\s+KEY\\b)", Pattern.CASE_INSENSITIVE);
+        Matcher m = inlinePkOnText.matcher(createSql);
+        String adjusted = m.replaceAll("$1VARCHAR(191)$3");
+        return adjusted;
     }
 
     /**

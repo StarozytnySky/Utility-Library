@@ -13,6 +13,7 @@ org-apache-logging-log4j-log4j-core = "2.17.1"
 org-mongodb-mongodb-driver-sync = "4.9.0"
 org-spigotmc-spigot-api = "1.20.2-R0.1-SNAPSHOT"
 org-xerial-sqlite-jdbc = "3.42.0.0"
+org-mariadb-jdbc = "3.5.6"
 
 [libraries]
 com-google-code-findbugs-jsr305 = { module = "com.google.code.findbugs:jsr305", version.ref = "com-google-code-findbugs-jsr305" }
@@ -26,3 +27,4 @@ org-apache-logging-log4j-core = { module = "org.apache.logging.log4j:log4j-core"
 org-mongodb-mongodb-driver-sync = { module = "org.mongodb:mongodb-driver-sync", version.ref = "org-mongodb-mongodb-driver-sync" }
 org-spigotmc-spigot-api = { module = "org.spigotmc:spigot-api", version.ref = "org-spigotmc-spigot-api" }
 org-xerial-sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "org-xerial-sqlite-jdbc" }
+org-mariadb-jdbc = { module = "org.mariadb.jdbc:mariadb-java-client", version.ref = "org-mariadb-jdbc" }

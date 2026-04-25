@@ -3,6 +3,7 @@ package org.broken.arrow.utility.library;
 
 import org.broken.arrow.library.command.CommandRegister;
 import org.broken.arrow.library.command.commandhandler.CommandRegistering;
+import org.broken.arrow.library.database.core.databases.MariaDB;
 import org.broken.arrow.library.database.core.databases.MySQL;
 import org.broken.arrow.library.database.core.databases.SQLite;
 import org.broken.arrow.library.database.builders.ConnectionSettings;
@@ -74,6 +75,16 @@ public final class UtilityLibrary extends JavaPlugin {
 	 */
 	public MySQL createMySQLInstance(ConnectionSettings mysqlPreference) {
 		return new MySQL(mysqlPreference);
+	}
+
+	/**
+	 * Creates a new MariaDB instance with the given MySQL preferences.
+	 *
+	 * @param mysqlPreference The MySQL preferences.
+	 * @return The MySQL instance.
+	 */
+	public MariaDB createMariaDBInstance(ConnectionSettings mysqlPreference) {
+		return new MariaDB(mysqlPreference);
 	}
 
 	/**

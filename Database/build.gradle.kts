@@ -1,6 +1,3 @@
-import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import org.broken.arrow.library.PublicationManager
-
 plugins {
     java
     alias(libs.plugins.shadow)
@@ -17,6 +14,7 @@ dependencies {
     api(project(":log-and-validate"))
     api(project(":serialize-utility"))
     compileOnly(libs.org.xerial.sqlite.jdbc)
+    compileOnly(libs.org.mariadb.jdbc)
     compileOnly(libs.com.zaxxer.hikaricp)
     compileOnly(libs.mysql.connector.j)
     compileOnly(libs.org.mongodb.mongodb.driver.sync)

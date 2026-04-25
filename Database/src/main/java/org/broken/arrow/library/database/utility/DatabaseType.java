@@ -11,6 +11,9 @@ public enum DatabaseType {
 	/** MySQL database. */
 	MYSQL,
 
+	/** MariaDB database. */
+	MARIA_DB,
+
 	/** PostgreSQL database. */
 	POSTGRESQL,
 
