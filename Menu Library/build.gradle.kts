@@ -25,6 +25,10 @@ dependencies {
     compileOnly(libs.com.google.code.gson.gson)
     compileOnly(libs.google.findbugs.jsr305)
     compileOnly(libs.mojang.authlib)
+
+    testImplementation(libs.org.spigotmc.spigotapi)
+    testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")
 }
 
 java {
@@ -48,4 +52,8 @@ tasks {
         dependsOn(":item-creator:shadowJar")
 
     }
+}
+// Run value-level regressions before validating real inventory events on Paper.
+tasks.test {
+    useJUnitPlatform()
 }

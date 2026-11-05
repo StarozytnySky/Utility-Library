@@ -30,6 +30,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -413,6 +414,20 @@ public class MenuUtility<T> {
     @Nullable
     public Inventory getMenu() {
         return inventory;
+    }
+
+    /**
+     * Binds the inventory currently associated with this menu.
+     * <p>
+     * The field is private so holders that open one inventory per player, such as
+     * {@link org.broken.arrow.library.menu.holder.MenuHolderShared}, can update the active view
+     * without exposing the field.
+     * </p>
+     *
+     * @param inventory the inventory to bind, or null to clear it.
+     */
+    protected void setMenu(@Nullable final Inventory inventory) {
+        this.inventory = inventory;
     }
 
     /**
@@ -861,6 +876,42 @@ public class MenuUtility<T> {
             final ClickContext clickContext = new ClickContext(menu, clickedItem, clickedPos);
             menuButton.onClickInsideMenu(player, clickType, clickContext);
         }
+    }
+
+    /**
+     * Binds the player that is currently interacting with this menu.
+     * <p>
+     * The listener calls this before click and drag handling so page-aware menus can
+     * resolve the right viewer without changing the shared menu instance.
+     * </p>
+     *
+     * @param player the player who triggered the inventory event.
+     */
+    public void bindViewer(@Nonnull final Player player) {
+        this.player = player;
+    }
+
+    /**
+     * Called after the standard button click handling for a tracked menu.
+     * <p>
+     * The default implementation does nothing. Shared menus use this to apply slot
+     * changes that must not go through the single shared inventory.
+     * </p>
+     *
+     * @param event the click event, still carrying the pre-click cursor and slot item.
+     */
+    public void onInventoryClick(@Nonnull final InventoryClickEvent event) {
+    }
+
+    /**
+     * Called after the standard drag handling for a tracked menu.
+     * <p>
+     * The default implementation does nothing.
+     * </p>
+     *
+     * @param event the drag event.
+     */
+    public void onInventoryDrag(@Nonnull final InventoryDragEvent event) {
     }
 
     /**

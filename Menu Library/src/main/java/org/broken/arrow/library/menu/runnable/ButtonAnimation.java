@@ -312,19 +312,39 @@ public class ButtonAnimation<T> extends BukkitRunnable {
         List<Integer> slots = new ArrayList<>();
         MenuButton menuButton;
 
+        /**
+         * Creates an animation group for a specific menu button.
+         *
+         * @param menuButton the button associated with this animation group
+         */
         public ButtonAnimationGroup(@Nonnull final MenuButton menuButton) {
             this.menuButton = menuButton;
         }
 
+        /**
+         * Adds a slot to the animation group.
+         *
+         * @param slot the inventory slot to animate
+         */
         public void add(int slot) {
             slots.add(slot);
         }
 
+        /**
+         * Retrieves the slots associated with this animation group.
+         *
+         * @return the list of registered animation slots
+         */
         @Nonnull
         public List<Integer> getSlots() {
             return slots;
         }
 
+        /**
+         * Retrieves the menu button associated with this animation group.
+         *
+         * @return the button whose animation is managed by this group
+         */
         @Nonnull
         public MenuButton getMenuButton() {
             return menuButton;

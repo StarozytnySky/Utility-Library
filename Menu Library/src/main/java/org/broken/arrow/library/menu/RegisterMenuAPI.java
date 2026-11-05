@@ -3,6 +3,7 @@ package org.broken.arrow.library.menu;
 import org.broken.arrow.library.itemcreator.ItemCreator;
 import org.broken.arrow.library.logging.Logging;
 import org.broken.arrow.library.menu.cache.MenuCache;
+import org.broken.arrow.library.menu.shared.SharedMenuInventoryHolder;
 import org.broken.arrow.library.menu.cache.MenuCacheKey;
 import org.broken.arrow.library.menu.messages.SendMsgDuplicatedItems;
 import org.broken.arrow.library.menu.utility.Action;
@@ -22,6 +23,7 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.inventory.InventoryType;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
@@ -269,15 +271,30 @@ public class RegisterMenuAPI {
         private final MenuCache cachedMenu = getMenuCache();
         private final Map<UUID, SwapData> cacheData = new HashMap<>();
 
+        /**
+         * Handles inventory clicks for ordinary and shared menus.
+         *
+         * @param event the Bukkit inventory event being handled
+         */
         @EventHandler(priority = EventPriority.LOW)
         public void onMenuClicking(final InventoryClickEvent event) {
             final Player player = (Player) event.getWhoClicked();
 
+            // Shared inventories own their entire interaction pipeline. Do not run the
+            // ordinary button/cursor handler before the shared transaction controller.
+            final InventoryHolder inventoryHolder = event.getView().getTopInventory().getHolder();
+            if (inventoryHolder instanceof SharedMenuInventoryHolder) {
+                final SharedMenuInventoryHolder shared = (SharedMenuInventoryHolder) inventoryHolder;
+                // An earlier LOWEST listener may have already vetoed the interaction.
+                if (!event.isCancelled()) shared.owner().handleClick(event);
+                return;
+            }
             if (event.getClickedInventory() == null) return;
             ItemStack clickedItem = event.getCurrentItem();
 
             final MenuUtility<?> menuUtility = getMenuHolder(player);
             if (menuUtility == null) return;
+            menuUtility.bindViewer(player);
 
             if (event.getSlotType() == InventoryType.SlotType.OUTSIDE) menuUtility.menuClickOutside(event, menuUtility);
 
@@ -288,10 +305,17 @@ public class RegisterMenuAPI {
             if (menuUtility.getMenuInteractionChecks().whenPlayerClick(event, player, clickedItem)) {
                 onOffHandClick(event, player);
             }
+            menuUtility.onInventoryClick(event);
         }
 
+        /**
+         * Handles the opening of a menu inventory.
+         *
+         * @param event the Bukkit inventory event being handled
+         */
         @EventHandler(priority = EventPriority.LOW)
         public void onMenuOpen(final InventoryOpenEvent event) {
+            if (event.getView().getTopInventory().getHolder() instanceof SharedMenuInventoryHolder) return;
             final Player player = (Player) event.getPlayer();
 
             final MenuUtility<?> menuUtility = getMenuHolder(player);
@@ -305,9 +329,22 @@ public class RegisterMenuAPI {
             this.cacheData.put(player.getUniqueId(), new SwapData(false, player.getInventory().getItemInOffHand()));
         }
 
+        /**
+         * Handles inventory closing and shared-session cleanup.
+         *
+         * @param event the Bukkit inventory event being handled
+         */
         @EventHandler(priority = EventPriority.LOW)
         public void onMenuClose(final InventoryCloseEvent event) {
             final Player player = (Player) event.getPlayer();
+            final InventoryHolder inventoryHolder = event.getView().getTopInventory().getHolder();
+            if (inventoryHolder instanceof SharedMenuInventoryHolder) {
+                final SharedMenuInventoryHolder shared = (SharedMenuInventoryHolder) inventoryHolder;
+                if (!shared.owner().checkValidMenu(event.getView().getTopInventory(), Action.CLOSE)) return;
+                try { shared.owner().menuClose(event); }
+                finally { shared.owner().unregister(player); }
+                return;
+            }
 
             final MenuUtility<?> menuUtility = getMenuHolder(player);
             if (menuUtility == null) return;
@@ -332,21 +369,70 @@ public class RegisterMenuAPI {
         }
 
 
+        /**
+         * Handles item dragging across top and player inventory slots.
+         *
+         * @param event the Bukkit inventory event being handled
+         */
         @EventHandler(priority = EventPriority.LOW)
         public void onInventoryDragTop(final InventoryDragEvent event) {
+            final InventoryHolder inventoryHolder = event.getView().getTopInventory().getHolder();
+            if (inventoryHolder instanceof SharedMenuInventoryHolder) {
+                final SharedMenuInventoryHolder shared = (SharedMenuInventoryHolder) inventoryHolder;
+                if (!event.isCancelled()) shared.owner().handleDrag(event);
+                return;
+            }
             final Player player = (Player) event.getWhoClicked();
             if (event.getView().getType() == InventoryType.PLAYER) return;
 
             final MenuUtility<?> menuUtility = getMenuHolder(player);
             if (menuUtility == null) return;
+            menuUtility.bindViewer(player);
             if (menuUtility.getMenu() == null) return;
 
             if (!menuUtility.isAddedButtonsCacheEmpty()) {
                 final int size = event.getView().getTopInventory().getSize();
                 menuUtility.getMenuInteractionChecks().whenPlayerDrag(event, size);
             }
+            menuUtility.onInventoryDrag(event);
         }
 
+
+
+        /**
+         * Prevents a later listener from re-enabling native shared-inventory mutations.
+         *
+         * @param event the Bukkit inventory event being handled
+         */
+        @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+        public void protectSharedClicks(final InventoryClickEvent event) {
+            final InventoryHolder inventoryHolder = event.getView().getTopInventory().getHolder();
+            if (!(inventoryHolder instanceof SharedMenuInventoryHolder)) return;
+            final SharedMenuInventoryHolder holder = (SharedMenuInventoryHolder) inventoryHolder;
+            int raw = event.getRawSlot();
+            int topSize = event.getView().getTopInventory().getSize();
+            if (!holder.owner().checkValidMenu(event.getView().getTopInventory(), Action.CLICKED)
+                    || raw >= 0 && raw < topSize
+                    || event.getClick().isShiftClick()
+                    || event.getClick() == ClickType.DOUBLE_CLICK
+                    || holder.owner().hasPendingTransaction()
+                    || holder.owner().isQuarantined()) event.setCancelled(true);
+        }
+
+        /**
+         * Enforces protection for drag gestures crossing a shared page's slots.
+         *
+         * @param event the Bukkit inventory event being handled
+         */
+        @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+        public void protectSharedDrags(final InventoryDragEvent event) {
+            final InventoryHolder inventoryHolder = event.getView().getTopInventory().getHolder();
+            if (!(inventoryHolder instanceof SharedMenuInventoryHolder)) return;
+            final SharedMenuInventoryHolder holder = (SharedMenuInventoryHolder) inventoryHolder;
+            if (event.getRawSlots().stream().anyMatch(raw -> raw < event.getView().getTopInventory().getSize())
+                    || holder.owner().hasPendingTransaction() || holder.owner().isQuarantined())
+                event.setCancelled(true);
+        }
 
         @Nullable
         private MenuUtility<?> getMenuHolder(final Player player) {
@@ -383,15 +469,31 @@ public class RegisterMenuAPI {
             boolean playerUseSwapoffhand;
             ItemStack itemInOfBeforeOpenMenuHand;
 
+            /**
+             * Captures offhand-swap state for one player inventory session.
+             *
+             * @param playerUseSwapoffhand whether the offhand swap action is permitted
+             * @param itemInOfBeforeOpenMenuHand the item held before the menu opened
+             */
             public SwapData(final boolean playerUseSwapoffhand, final ItemStack itemInOfBeforeOpenMenuHand) {
                 this.playerUseSwapoffhand = playerUseSwapoffhand;
                 this.itemInOfBeforeOpenMenuHand = itemInOfBeforeOpenMenuHand;
             }
 
+            /**
+             * Checks whether the offhand-swap action was used.
+             *
+             * @return true if the player used the offhand-swap action
+             */
             public boolean isPlayerUseSwapoffhand() {
                 return playerUseSwapoffhand;
             }
 
+            /**
+             * Retrieves the item in of before open menu hand.
+             *
+             * @return the item in of before open menu hand
+             */
             public ItemStack getItemInOfBeforeOpenMenuHand() {
                 return itemInOfBeforeOpenMenuHand;
             }
