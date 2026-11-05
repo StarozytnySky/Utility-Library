@@ -240,6 +240,7 @@ final class SharedInventoryController {
             for (int pass = 0; pass < 2 && !empty(remaining); pass++) {
                 for (int p = start; p < end && !empty(remaining); p++) {
                     for (int visual : owner.fillSlots()) {
+                        if (empty(remaining)) break;
                         int index = owner.storageIndex(p, visual);
                         ItemStack existing = storage(index);
                         if (pass == 0 && (empty(existing) || !existing.isSimilar(remaining))) continue;
