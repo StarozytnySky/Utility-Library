@@ -2,16 +2,15 @@ name: ${name}
 version: ${version}
 main: ${main}
 author: broken arrow
-api-version: 1.13
+api-version: '26.3'
+# Drivers are loaded once into the Utility-Library plugin classpath.
+# The aggregate shadowJar excludes these dependencies to prevent duplicates.
 libraries:
-  - com.zaxxer:HikariCP:5.0.1
-  - com.h2database:h2:2.1.214
-  - org.postgresql:postgresql:42.6.0
-  - org.mongodb:mongodb-driver-sync:4.9.0
-legacy-libraries:
-  - org.slf4j:slf4j-simple:1.7.36
-  - org.slf4j:slf4j-api:1.7.36
-  - com.zaxxer:HikariCP:4.0.3
-  - com.h2database:h2:2.1.214
-  - org.postgresql:postgresql:42.6.0
-  - org.mongodb:mongodb-driver-sync:4.9.0
+  - com.google.code.gson:gson:2.13.2
+  - com.zaxxer:HikariCP:7.1.0
+  - org.mongodb:mongodb-driver-sync:5.14.0
+  - org.xerial:sqlite-jdbc:3.54.1.0
+  - com.h2database:h2:2.5.252
+  - com.mysql:mysql-connector-j:9.6.0
+  - org.mariadb.jdbc:mariadb-java-client:4.0.0
+  - org.postgresql:postgresql:42.7.14

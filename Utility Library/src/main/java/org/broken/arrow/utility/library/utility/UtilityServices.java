@@ -3,9 +3,8 @@ package org.broken.arrow.utility.library.utility;
 import org.broken.arrow.library.chunk.tracking.ChunkRelevanceTracker;
 import org.broken.arrow.library.command.CommandRegister;
 import org.broken.arrow.library.command.commandhandler.CommandRegistering;
-import org.broken.arrow.library.database.builders.ConnectionSettings;
-import org.broken.arrow.library.database.core.databases.MySQL;
-import org.broken.arrow.library.database.core.databases.SQLite;
+import org.broken.arrow.library.database.api.DatabaseClient;
+import org.broken.arrow.library.database.api.DatabaseConfiguration;
 import org.broken.arrow.library.itemcreator.ItemCreator;
 import org.broken.arrow.library.menu.RegisterMenuAPI;
 import org.broken.arrow.library.visualization.BlockVisualize;
@@ -64,24 +63,14 @@ public class UtilityServices {
     }
 
     /**
-     * Creates a new MySQL connection wrapper using the provided settings.
+     * Creates an independent database client using the selected database provider.
+     * The caller owns this client and must close it on plugin shutdown.
      *
-     * @param mysqlPreference the connection settings
-     * @return a new MySQL instance
+     * @param configuration immutable database and worker configuration
+     * @return a validated database client with its own provider and worker
      */
-    public MySQL createMySQLInstance(ConnectionSettings mysqlPreference) {
-        return new MySQL(mysqlPreference);
-    }
-
-    /**
-     * Creates a new SQLite connection wrapper.
-     *
-     * @param parent the parent directory path
-     * @param child the database file name or relative path
-     * @return a new SQLite instance
-     */
-    public SQLite createSQLiteInstance(String parent, String child) {
-        return new SQLite(parent, child);
+    public DatabaseClient createDatabase(DatabaseConfiguration configuration) {
+        return DatabaseClient.open(configuration);
     }
 
     /**

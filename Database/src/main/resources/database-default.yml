@@ -1,0 +1,25 @@
+# Copy this file to the consuming plugin's resources as database.yml to customize defaults.
+database:
+  # SQLITE, H2, MYSQL, MARIADB, POSTGRESQL, MONGODB
+  type: SQLITE
+
+  # Local SQLite file relative to the plugin's data directory.
+  sqlite-file: database.db
+  sqlite-wal: true
+  sqlite-busy-timeout-ms: 5000
+
+  # Required for H2, MySQL, MariaDB, PostgreSQL and MongoDB.
+  # Examples: jdbc:mariadb://127.0.0.1:3306/guildscore
+  #           mongodb://127.0.0.1:27017
+  url: ""
+  # Required by MongoDB only.
+  name: ""
+  username: ""
+  password: ""
+
+  # SQLite must use a pool size of 1.
+  pool-size: 0 # Automatic: 1 for SQLite, 10 for other providers
+  workers: 2
+  queue-capacity: 2048
+  connection-timeout-ms: 10000
+  shutdown-timeout-ms: 15000

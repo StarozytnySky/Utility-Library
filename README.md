@@ -1,3 +1,5 @@
+> **Database 2.2:** See [DATABASE_2_2_CHANGES.md](DATABASE_2_2_CHANGES.md) for automatic plugin bootstrap, portable repository registration and schema initialization.
+
 # Utility-Library
 
 [![Static Badge](https://img.shields.io/badge/Repsy-0.137-brightgreen?style=flat&logo=codio&logoColor=%23b112cf&labelColor=gray)](https://repo.repsy.io/mvn/broken-arrow/utility-library/org/broken/arrow/library/)

@@ -10,7 +10,7 @@ plugins {
 
 group = "org.broken.arrow.library"
 description = "Utility-Library"
-version = "1.0-SNAPSHOT"
+version = "2.2.0-SNAPSHOT"
 
 dependencies {
     api(project(":color-conversion"))
@@ -34,7 +34,12 @@ dependencies {
 }
 
 java {
+    toolchain.languageVersion.set(JavaLanguageVersion.of(25))
     withJavadocJar()
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(25)
 }
 
 /* work in progress
@@ -64,6 +69,7 @@ afterEvaluate {
 
 tasks {
     shadowJar {
+        mergeServiceFiles()
         mustRunAfter(":block-visualization:shadowJar")
         mustRunAfter(":nbt:shadowJar")
         mustRunAfter(":color-conversion:shadowJar")
@@ -78,6 +84,19 @@ tasks {
             }
             relocate("de.tr7zw.changeme.nbtapi", formatDependency("nbt_util"))
             //relocate("org.broken.arrow.library", formatDependency("api"))
+        }
+        // Drivers are supplied once by Paper using plugin.yml libraries.
+        // Prevent duplicate copies from being included by Shadow.
+        dependencies {
+            exclude(dependency("com.zaxxer:HikariCP:.*"))
+            exclude(dependency("org.mongodb:.*:.*"))
+            exclude(dependency("org.xerial:sqlite-jdbc:.*"))
+            exclude(dependency("com.h2database:h2:.*"))
+            exclude(dependency("com.mysql:mysql-connector-j:.*"))
+            exclude(dependency("org.mariadb.jdbc:mariadb-java-client:.*"))
+            exclude(dependency("org.postgresql:postgresql:.*"))
+            exclude(dependency("com.google.code.gson:gson:.*"))
+            exclude(dependency("org.slf4j:slf4j-api:.*"))
         }
     }
     processResources {

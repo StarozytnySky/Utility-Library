@@ -50,14 +50,16 @@ subprojects {
     plugins.apply("signing")
     plugins.apply("checkstyle")
 
+    // The published modules share the same Java 25 runtime target.
+    // Build logic (buildProject) is a separate included build.
     java {
         toolchain {
-            languageVersion.set(JavaLanguageVersion.of(17))
+            languageVersion.set(JavaLanguageVersion.of(25))
         }
     }
     tasks.withType<JavaCompile> {
         options.encoding = Charsets.UTF_8.name()
-        options.release.set(8)
+        options.release.set(25)
     }
     tasks {
         register("checkstyleAll") {
@@ -90,7 +92,7 @@ subprojects {
                     artifactId = project.name
                     groupId = project.group.toString()
                     artifactId = project.name
-                    version = "0.138"
+                    version = project.version.toString()
                     pom {
                         name.set(project.name)
                         description.set("Description for ${project.name}")
