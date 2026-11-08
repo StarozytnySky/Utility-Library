@@ -98,6 +98,31 @@ class PortableRepositoryIntegrationTest {
         });
     }
 
+    /**
+     * Bulk deletion must require a predicate and roll back when the expected count differs.
+     */
+    @Test
+    void conditionalBulkDeleteIsAtomic() {
+        runOnEmbeddedProviders(database -> {
+            RecordRepository<Account, UUID> repository = database.repository(CODEC);
+            Account first = new Account(UUID.randomUUID(), "guild-a", 10L);
+            Account second = new Account(UUID.randomUUID(), "guild-a", 20L);
+            Account other = new Account(UUID.randomUUID(), "guild-b", 30L);
+            repository.insertBatchAsync(List.of(first, second, other), 3).join();
+
+            RecordQuery scoped = RecordQuery.all()
+                    .where("owner", RecordQuery.Operator.EQ, "guild-a");
+            assertThrows(RuntimeException.class, () -> database.transactionAsync(
+                    tx -> repository.deleteMatching(tx, RecordQuery.all())).join());
+            assertThrows(RuntimeException.class, () -> repository.deleteExactlyAsync(scoped, 3L).join());
+            assertEquals(3L, repository.countAsync(RecordQuery.all()).join().longValue());
+
+            assertEquals(2L, repository.deleteMatchingAsync(scoped).join().longValue());
+            assertEquals(1L, repository.countAsync(RecordQuery.all()).join().longValue());
+            assertEquals(other, repository.findByIdAsync(other.id()).join().orElseThrow());
+        });
+    }
+
     /** Atomic increments must reject values that would overflow a 64-bit balance. */
     @Test
     void integerOverflowDoesNotModifyBalance() {
@@ -128,7 +153,11 @@ class PortableRepositoryIntegrationTest {
         });
     }
 
-    /** Runs one identical contract against both embedded JDBC engines. */
+    /**
+     * Runs one identical contract against both embedded JDBC engines.
+     *
+     * @param test value of test used by this operation
+     */
     private void runOnEmbeddedProviders(java.util.function.Consumer<DatabaseClient> test) {
         for (DatabaseKind kind : List.of(DatabaseKind.SQLITE, DatabaseKind.H2)) {
             String address = kind == DatabaseKind.SQLITE

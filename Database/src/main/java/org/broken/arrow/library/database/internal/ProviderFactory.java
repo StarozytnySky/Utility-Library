@@ -12,7 +12,12 @@ import org.broken.arrow.library.database.spi.DatabaseProvider;
 public final class ProviderFactory {
     private ProviderFactory() { }
 
-    /** Creates and validates exactly one owned backend per database client. */
+    /**
+     * Creates and validates exactly one owned backend per database client.
+     *
+     * @param configuration validated database configuration used to open the client
+     * @return new database client with a validated provider and worker pool
+     */
     public static DatabaseProvider open(DatabaseConfiguration configuration) {
         Objects.requireNonNull(configuration, "configuration");
         return switch (configuration.kind()) {

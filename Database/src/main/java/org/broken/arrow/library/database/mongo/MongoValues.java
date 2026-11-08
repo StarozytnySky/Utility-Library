@@ -17,13 +17,25 @@ import org.bson.types.Decimal128;
 final class MongoValues {
     private MongoValues() { }
 
-    /** Maps a declared collection field onto an engine-specific document field name. */
+    /**
+     * Maps a declared collection field onto an engine-specific document field name.
+     *
+     * @param schema definition of the target table or collection
+     * @param field validated field name or field definition
+     * @return declared name of the field, index, or collection
+     */
     static String name(CollectionDefinition schema, String field) {
         schema.field(field);
         return schema.idField().equals(field) ? "_id" : field;
     }
 
-    /** Converts a typed value into a BSON-compatible value without reflection. */
+    /**
+     * Converts a typed value into a BSON-compatible value without reflection.
+     *
+     * @param type declared Java or database field type
+     * @param value value to encode, validate, or store
+     * @return backend-compatible representation of the value
+     */
     static Object encode(FieldType type, Object value) {
         if (value == null) return null;
         return switch (type) {
@@ -40,7 +52,13 @@ final class MongoValues {
         };
     }
 
-    /** Converts BSON into the exact declared Java domain type. */
+    /**
+     * Converts BSON into the exact declared Java domain type.
+     *
+     * @param type declared Java or database field type
+     * @param value value to encode, validate, or store
+     * @return decoded, strongly typed Java value
+     */
     static Object decode(FieldType type, Object value) {
         if (value == null) return null;
         return switch (type) {
@@ -58,7 +76,12 @@ final class MongoValues {
         };
     }
 
-    /** Normalizes structured objects into plain BSON-compatible maps and lists. */
+    /**
+     * Normalizes structured objects into plain BSON-compatible maps and lists.
+     *
+     * @param value value to encode, validate, or store
+     * @return computed result of the requested operation
+     */
     private static Object jsonValue(Object value) {
         if (value == null || value instanceof String || value instanceof Boolean
                 || value instanceof Integer || value instanceof Long || value instanceof Double) return value;
@@ -82,7 +105,13 @@ final class MongoValues {
         throw new IllegalArgumentException("Unsupported BSON JSON value: " + value.getClass().getName());
     }
 
-    /** Builds a complete MongoDB document from schema-validated logical values. */
+    /**
+     * Builds a complete MongoDB document from schema-validated logical values.
+     *
+     * @param schema definition of the target table or collection
+     * @param values ordered values to bind or encode
+     * @return backend-compatible representation of the value
+     */
     static Document encode(CollectionDefinition schema, Map<String, Object> values) {
         schema.validateValues(values, true);
         Document document = new Document();
@@ -94,7 +123,13 @@ final class MongoValues {
         return document;
     }
 
-    /** Converts a BSON document back into a nullable-aware immutable logical map. */
+    /**
+     * Converts a BSON document back into a nullable-aware immutable logical map.
+     *
+     * @param schema definition of the target table or collection
+     * @param document MongoDB document to decode into typed fields
+     * @return decoded, strongly typed Java value
+     */
     static Map<String, Object> decode(CollectionDefinition schema, Document document) {
         Map<String, Object> values = new LinkedHashMap<>();
         for (CollectionDefinition.Field field : schema.fields()) {
@@ -103,7 +138,13 @@ final class MongoValues {
         return Collections.unmodifiableMap(values);
     }
 
-    /** Encodes a primary key using the schema's declared type. */
+    /**
+     * Encodes a primary key using the schema's declared type.
+     *
+     * @param schema definition of the target table or collection
+     * @param id stable primary-key value
+     * @return identifier of the supplied record
+     */
     static Object id(CollectionDefinition schema, Object id) {
         if (id == null) throw new IllegalArgumentException("Identifier is required");
         return encode(schema.field(schema.idField()).type(), id);

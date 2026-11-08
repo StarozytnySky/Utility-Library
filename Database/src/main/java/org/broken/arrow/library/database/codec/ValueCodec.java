@@ -11,10 +11,20 @@ package org.broken.arrow.library.database.codec;
  */
 public interface ValueCodec<T> {
 
-    /** Converts a Java value into a portable storage representation. */
+    /**
+     * Converts a Java value into a portable storage representation.
+     *
+     * @param value value to encode, validate, or store
+     * @return backend-compatible representation of the value
+     */
     Object encode(T value);
 
-    /** Restores a Java value from a portable storage representation. */
+    /**
+     * Restores a Java value from a portable storage representation.
+     *
+     * @param stored serialized representation read from storage
+     * @return decoded, strongly typed Java value
+     */
     T decode(Object stored);
 
     /**

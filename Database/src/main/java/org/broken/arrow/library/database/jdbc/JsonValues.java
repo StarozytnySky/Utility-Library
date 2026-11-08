@@ -27,7 +27,12 @@ final class JsonValues {
 
     private JsonValues() { }
 
-    /** Serializes a validated structured value to a SQL text column. */
+    /**
+     * Serializes a validated structured value to a SQL text column.
+     *
+     * @param value value to encode, validate, or store
+     * @return string representation of the requested value
+     */
     static String toJson(Object value) {
         String json = GSON.toJson(value);
         if (json.length() > MAX_JSON_CHARS) {
@@ -36,7 +41,12 @@ final class JsonValues {
         return json;
     }
 
-    /** Parses SQL JSON text without converting integral values through floating point. */
+    /**
+     * Parses SQL JSON text without converting integral values through floating point.
+     *
+     * @param text JSON text to deserialize
+     * @return computed result of the requested operation
+     */
     static Object fromJson(String text) {
         if (text.length() > MAX_JSON_CHARS) {
             throw new IllegalArgumentException("Stored JSON exceeds maximum permitted size");

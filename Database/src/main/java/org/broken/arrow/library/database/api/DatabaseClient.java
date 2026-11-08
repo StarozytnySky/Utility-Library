@@ -32,26 +32,52 @@ public final class DatabaseClient implements AutoCloseable {
                 config.shutdownTimeout(), "Utility-Database-" + config.kind());
     }
 
-    /** Starts and health-checks a provider, then creates a bounded worker. */
+    /**
+     * Starts and health-checks a provider, then creates a bounded worker.
+     *
+     * @param configuration validated database configuration used to open the client
+     * @return new database client with a validated provider and worker pool
+     */
     public static DatabaseClient open(DatabaseConfiguration configuration) {
         Objects.requireNonNull(configuration, "configuration");
         return new DatabaseClient(ProviderFactory.open(configuration), configuration);
     }
 
-    /** Opens around an externally managed provider; intended for integration tests and extensions. */
+    /**
+     * Opens around an externally managed provider; intended for integration tests and extensions.
+     *
+     * @param provider database provider responsible for storage operations
+     * @param configuration validated database configuration used to open the client
+     * @return client wrapping the provided database provider
+     */
     public static DatabaseClient fromProvider(DatabaseProvider provider, DatabaseConfiguration configuration) {
         Objects.requireNonNull(provider, "provider");
         if (provider.kind() != configuration.kind()) throw new IllegalArgumentException("Provider kind mismatch");
         return new DatabaseClient(provider, configuration);
     }
 
-    /** Returns the database type chosen at startup. */
+    /**
+     * Returns the database type chosen at startup.
+     *
+     * @return configured database engine
+     */
     public DatabaseKind kind() { return provider.kind(); }
 
-    /** Describes whether the deployment offers multi-record transactions. */
+    /**
+     * Describes whether the deployment offers multi-record transactions.
+     *
+     * @return whether multi-record transactions are supported
+     */
     public boolean supportsTransactions() { return provider.supportsTransactions(); }
 
-    /** Builds a high-level typed repository for the given record codec. */
+    /**
+     * Builds a high-level typed repository for the given record codec.
+     *
+     * @param <T> type of the record or value returned by the operation
+     * @param <ID> type of the repository primary key
+     * @param codec type-safe converter for records or values
+     * @return typed repository bound to the current database client
+     */
     public <T, ID> RecordRepository<T, ID> repository(RecordCodec<T, ID> codec) {
         ensureOpen();
         return new RecordRepository<>(this, codec);
@@ -89,40 +115,81 @@ public final class DatabaseClient implements AutoCloseable {
         return repository(RecordCodecs.of(type, collection, idField, codecs));
     }
 
-    /** Executes a blocking read; never call this on the Paper tick thread. */
+    /**
+     * Executes a blocking read; never call this on the Paper tick thread.
+     *
+     * @param <T> type of the record or value returned by the operation
+     * @param work database operation executed within the provided session
+     * @return value produced by the database read callback
+     */
     public <T> T read(DatabaseWork<ReadSession, T> work) {
         ensureOpen();
         return provider.read(work);
     }
 
-    /** Executes a blocking multi-record transaction; prefer transactionAsync for gameplay. */
+    /**
+     * Executes a blocking multi-record transaction; prefer transactionAsync for gameplay.
+     *
+     * @param <T> type of the record or value returned by the operation
+     * @param work database operation executed within the provided session
+     * @return value returned after the transaction commits successfully
+     */
     public <T> T transaction(DatabaseWork<WriteSession, T> work) {
         ensureOpen();
         return provider.transaction(work);
     }
 
-    /** Executes exactly one independent write in a blocking call. */
+    /**
+     * Executes exactly one independent write in a blocking call.
+     *
+     * @param <T> type of the record or value returned by the operation
+     * @param work database operation executed within the provided session
+     * @return value produced by the committed single-write operation
+     */
     public <T> T writeOne(DatabaseWork<WriteSession, T> work) {
         ensureOpen();
         return provider.writeOne(work);
     }
 
-    /** Runs a read on the bounded worker; rejections complete the future exceptionally. */
+    /**
+     * Runs a read on the bounded worker; rejections complete the future exceptionally.
+     *
+     * @param <T> type of the record or value returned by the operation
+     * @param work database operation executed within the provided session
+     * @return future holding the read result or an explicit failure
+     */
     public <T> CompletableFuture<T> readAsync(DatabaseWork<ReadSession, T> work) {
         return schedule(() -> read(work));
     }
 
-    /** Runs a multi-record transaction on the bounded worker. */
+    /**
+     * Runs a multi-record transaction on the bounded worker.
+     *
+     * @param <T> type of the record or value returned by the operation
+     * @param work database operation executed within the provided session
+     * @return future holding the committed transaction result or its failure
+     */
     public <T> CompletableFuture<T> transactionAsync(DatabaseWork<WriteSession, T> work) {
         return schedule(() -> transaction(work));
     }
 
-    /** Runs one independent write on the bounded worker. */
+    /**
+     * Runs one independent write on the bounded worker.
+     *
+     * @param <T> type of the record or value returned by the operation
+     * @param work database operation executed within the provided session
+     * @return future holding the confirmed write result
+     */
     public <T> CompletableFuture<T> writeOneAsync(DatabaseWork<WriteSession, T> work) {
         return schedule(() -> writeOne(work));
     }
 
-    /** Starts schema creation asynchronously; never automatically alters existing data. */
+    /**
+     * Starts schema creation asynchronously; never automatically alters existing data.
+     *
+     * @param schema definition of the target table or collection
+     * @return future completed when the schema has been verified or created
+     */
     public CompletableFuture<Void> createIfAbsentAsync(CollectionDefinition schema) {
         return schedule(() -> {
             provider.createIfAbsent(schema);
@@ -152,7 +219,11 @@ public final class DatabaseClient implements AutoCloseable {
         });
     }
 
-    /** Returns current worker capacity and queue diagnostics without user data. */
+    /**
+     * Returns current worker capacity and queue diagnostics without user data.
+     *
+     * @return current immutable database worker metrics
+     */
     public DatabaseWorkerMetrics snapshot() { return worker.snapshot(); }
 
     private <T> CompletableFuture<T> schedule(java.util.concurrent.Callable<T> action) {

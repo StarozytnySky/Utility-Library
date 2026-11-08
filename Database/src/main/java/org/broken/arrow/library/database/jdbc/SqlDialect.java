@@ -12,19 +12,34 @@ import org.broken.arrow.library.database.schema.Identifiers;
 public final class SqlDialect {
     private final DatabaseKind kind;
 
-    /** Binds the dialect to a supported JDBC database. */
+    /**
+     * Binds the dialect to a supported JDBC database.
+     *
+     * @param kind requested database engine
+     */
     public SqlDialect(DatabaseKind kind) {
         if (!kind.isSql()) throw new IllegalArgumentException("MongoDB is not a SQL dialect");
         this.kind = kind;
     }
 
-    /** Quotes only validated identifiers, with the backend's native quote character. */
+    /**
+     * Quotes only validated identifiers, with the backend's native quote character.
+     *
+     * @param identifier value of identifier used by this operation
+     * @return validated and escaped SQL identifier for the selected dialect
+     */
     public String quote(String identifier) {
         char character = kind == DatabaseKind.MYSQL || kind == DatabaseKind.MARIADB ? '`' : '"';
         return character + Identifiers.require(identifier) + character;
     }
 
-    /** Builds an identifier-safe insert template. */
+    /**
+     * Builds an identifier-safe insert template.
+     *
+     * @param table table name validated against the schema
+     * @param fields ordered column names of the operation
+     * @return parameterized SQL INSERT statement
+     */
     public String insert(String table, List<String> fields) {
         if (fields.isEmpty()) throw new IllegalArgumentException("No insert fields");
         return "INSERT INTO " + quote(table) + " (" + fields.stream().map(this::quote)
@@ -32,7 +47,13 @@ public final class SqlDialect {
                 + fields.stream().map(unused -> "?").collect(Collectors.joining(", ")) + ")";
     }
 
-    /** Generates portable upsert syntax with a deterministic conflict target. */
+    /**
+     * Generates portable upsert syntax with a deterministic conflict target.
+     *
+     * @param schema definition of the target table or collection
+     * @param fields ordered column names of the operation
+     * @return dialect-specific, parameterized UPSERT statement
+     */
     public String upsert(CollectionDefinition schema, List<String> fields) {
         if (kind == DatabaseKind.H2) {
             // H2 uses MERGE, not PostgreSQL's INSERT ... ON CONFLICT syntax.
@@ -60,21 +81,41 @@ public final class SqlDialect {
                 .collect(Collectors.joining(", "));
     }
 
-    /** Compiles a conservative CREATE TABLE IF NOT EXISTS statement without schema alterations. */
+    /**
+     * Compiles a conservative CREATE TABLE IF NOT EXISTS statement without schema alterations.
+     *
+     * @param schema definition of the target table or collection
+     * @return CREATE TABLE statement for the declared schema
+     */
     public String createTable(CollectionDefinition schema) {
         return "CREATE TABLE IF NOT EXISTS " + quote(schema.name()) + " ("
                 + schema.fields().stream().map(field -> {
                     String column = quote(field.name()) + " "
-                            + sqlType(field.type(), field.name().equals(schema.idField()));
+                            + sqlType(field.type(), field.name().equals(schema.idField()),
+                                    schema.indexes().stream().anyMatch(index -> index.columns().contains(field.name())));
                     if (!field.nullable() || field.name().equals(schema.idField())) column += " NOT NULL";
                     if (field.name().equals(schema.idField())) column += " PRIMARY KEY";
                     return column;
                 }).collect(Collectors.joining(", ")) + ")";
     }
 
-    private String sqlType(FieldType type, boolean key) {
+    /**
+     * Compiles one validated secondary index for bootstrap.
+     *
+     * @param schema definition of the target table or collection
+     * @param index index definition or index name to verify
+     * @return CREATE INDEX statement for the declared index
+     */
+    public String createIndex(CollectionDefinition schema, CollectionDefinition.Index index) {
+        if (!schema.indexes().contains(index)) throw new IllegalArgumentException("Index not in schema");
+        return "CREATE " + (index.unique() ? "UNIQUE " : "") + "INDEX " + quote(index.name())
+                + " ON " + quote(schema.name()) + " (" + index.columns().stream()
+                .map(this::quote).collect(Collectors.joining(", ")) + ")";
+    }
+
+    private String sqlType(FieldType type, boolean key, boolean indexed) {
         return switch (type) {
-            case STRING -> key ? "VARCHAR(191)" : (kind == DatabaseKind.H2 ? "VARCHAR(4096)" : "TEXT");
+            case STRING -> key || indexed ? "VARCHAR(191)" : (kind == DatabaseKind.H2 ? "VARCHAR(4096)" : "TEXT");
             case UUID -> "VARCHAR(36)";
             case LONG, INSTANT -> "BIGINT";
             case INTEGER -> "INTEGER";

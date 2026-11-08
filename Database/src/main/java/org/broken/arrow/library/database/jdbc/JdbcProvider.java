@@ -24,7 +24,11 @@ public final class JdbcProvider implements DatabaseProvider {
     private final HikariDataSource pool;
     private final SqlDialect dialect;
 
-    /** Configures and opens a JDBC pool, validating the connection before returning. */
+    /**
+     * Configures and opens a JDBC pool, validating the connection before returning.
+     *
+     * @param config validated connection and worker configuration
+     */
     public JdbcProvider(DatabaseConfiguration config) {
         kind = config.kind();
         if (!kind.isSql()) throw new IllegalArgumentException("JDBC provider cannot open MongoDB");
@@ -144,12 +148,62 @@ public final class JdbcProvider implements DatabaseProvider {
         try (Connection connection = pool.getConnection();
              Statement statement = connection.createStatement()) {
             statement.execute(dialect.createTable(schema));
+            for (CollectionDefinition.Index index : schema.indexes()) {
+                if (!indexExists(connection, schema.name(), index.name())) {
+                    statement.execute(dialect.createIndex(schema, index));
+                }
+            }
         } catch (SQLException failure) {
             throw wrapSql("Create collection schema", failure, false);
         }
     }
 
-    /** Normalizes error classification without leaking SQL values or secrets. */
+    /**
+     * Checks provider catalog metadata without assuming CREATE INDEX IF NOT EXISTS support.
+     *
+     * @param connection active JDBC connection owned by the current operation
+     * @param table table name validated against the schema
+     * @param name validated name of the resource
+     * @return true if the requested condition is satisfied
+     */
+    private static boolean indexExists(Connection connection, String table, String name) throws SQLException {
+        java.sql.DatabaseMetaData metadata = connection.getMetaData();
+        // Our SQL dialect quotes identifiers, so try their exact case first.
+        if (catalogContainsIndex(metadata, connection.getCatalog(), table, name)) return true;
+        // Some catalog implementations expose normalized names even for quoted tables.
+        String normalized = metadata.storesUpperCaseIdentifiers() ? table.toUpperCase(java.util.Locale.ROOT)
+                : metadata.storesLowerCaseIdentifiers() ? table.toLowerCase(java.util.Locale.ROOT) : table;
+        return !normalized.equals(table)
+                && catalogContainsIndex(metadata, connection.getCatalog(), normalized, name);
+    }
+
+    /**
+     * Reads one database catalog index listing and always closes its cursor.
+     *
+     * @param metadata JDBC metadata used to inspect existing database objects
+     * @param catalog optional catalog containing the target table
+     * @param table table name validated against the schema
+     * @param index index definition or index name to verify
+     * @return true if the requested condition is satisfied
+     */
+    private static boolean catalogContainsIndex(java.sql.DatabaseMetaData metadata, String catalog,
+            String table, String index) throws SQLException {
+        try (java.sql.ResultSet result = metadata.getIndexInfo(catalog, null, table, false, false)) {
+            while (result.next()) {
+                if (index.equalsIgnoreCase(result.getString("INDEX_NAME"))) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Normalizes error classification without leaking SQL values or secrets.
+     *
+     * @param operation name of the database operation used for diagnostics
+     * @param failure underlying error that caused the operation to fail
+     * @param commit whether a commit outcome must be classified as uncertain
+     * @return computed result of the requested operation
+     */
     static DatabaseFailure wrapSql(String operation, SQLException failure, boolean commit) {
         String state = failure.getSQLState();
         DatabaseFailure.Reason reason = commit ? DatabaseFailure.Reason.COMMIT_OUTCOME_UNKNOWN

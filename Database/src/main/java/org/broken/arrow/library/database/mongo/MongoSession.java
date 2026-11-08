@@ -27,12 +27,23 @@ final class MongoSession implements WriteSession {
     private final boolean oneMutationOnly;
     private int mutations;
 
-    /** Creates a session; null means a single atomic document operation or plain read. */
+    /**
+     * Creates a session; null means a single atomic document operation or plain read.
+     *
+     * @param database active database connection or namespace
+     * @param transaction MongoDB client session used for transactional operations
+     */
     MongoSession(MongoDatabase database, ClientSession transaction) {
         this(database, transaction, false);
     }
 
-    /** Enforces the portable single-document atomicity contract on standalone MongoDB. */
+    /**
+     * Enforces the portable single-document atomicity contract on standalone MongoDB.
+     *
+     * @param database active database connection or namespace
+     * @param transaction MongoDB client session used for transactional operations
+     * @param oneMutationOnly whether the session must reject a second write
+     */
     MongoSession(MongoDatabase database, ClientSession transaction, boolean oneMutationOnly) {
         this.database = database;
         this.transaction = transaction;
@@ -64,7 +75,11 @@ final class MongoSession implements WriteSession {
         Bson predicate = filter(schema, query);
         FindIterable<Document> cursor = transaction == null ? collection.find(predicate) : collection.find(transaction, predicate);
         String order = MongoValues.name(schema, query.orderBy() == null ? schema.idField() : query.orderBy());
-        cursor.sort(new Document(order, query.descending() ? -1 : 1)).skip(query.offset()).limit(query.limit());
+        Document sorting = new Document(order, query.descending() ? -1 : 1);
+        if (query.orderBy() != null && !query.orderBy().equals(schema.idField())) {
+            sorting.append("_id", query.descending() ? -1 : 1);
+        }
+        cursor.sort(sorting).skip(query.offset()).limit(query.limit());
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Document document : cursor) rows.add(MongoValues.decode(schema, document));
         return List.copyOf(rows);
@@ -76,6 +91,65 @@ final class MongoSession implements WriteSession {
         MongoCollection<Document> collection = collection(schema);
         Bson predicate = filter(schema, query);
         return transaction == null ? collection.countDocuments(predicate) : collection.countDocuments(transaction, predicate);
+    }
+
+    /** Uses MongoDB aggregation rather than materializing every matching document. */
+    @Override
+    public long sumLong(CollectionDefinition schema, RecordQuery query, String field) {
+        requireLong(schema, field);
+        List<Bson> pipeline = List.of(
+                new Document("$match", filter(schema, query)),
+                new Document("$group", new Document("_id", null)
+                        .append("total", new Document("$sum", "$" + MongoValues.name(schema, field)))));
+        var results = transaction == null ? collection(schema).aggregate(pipeline)
+                : collection(schema).aggregate(transaction, pipeline);
+        Document first = results.first();
+        return first == null ? 0L : exactLong(first.get("total"));
+    }
+
+    /** Calculates the top grouped totals on the server, with a deterministic tie-breaker. */
+    @Override
+    public List<org.broken.arrow.library.database.repository.GroupedLongSum> groupSumLong(
+            CollectionDefinition schema, RecordQuery query, String groupField, String sumField, int limit) {
+        requireLong(schema, sumField);
+        FieldType type = schema.field(groupField).type();
+        if (type == FieldType.JSON || type == FieldType.BYTES
+                || schema.field(groupField).nullable()) {
+            throw new IllegalArgumentException("Group field must be non-null scalar");
+        }
+        if (limit < 1 || limit > 1_000) throw new IllegalArgumentException("Group limit must be 1..1000");
+        List<Bson> pipeline = List.of(new Document("$match", filter(schema, query)),
+                new Document("$group", new Document("_id", "$" + MongoValues.name(schema, groupField))
+                        .append("total", new Document("$sum", "$" + MongoValues.name(schema, sumField)))),
+                new Document("$sort", new Document("total", -1).append("_id", 1)),
+                new Document("$limit", limit));
+        var results = transaction == null ? collection(schema).aggregate(pipeline)
+                : collection(schema).aggregate(transaction, pipeline);
+        List<org.broken.arrow.library.database.repository.GroupedLongSum> rows = new ArrayList<>();
+        for (Document document : results) {
+            rows.add(new org.broken.arrow.library.database.repository.GroupedLongSum(
+                    MongoValues.decode(type, document.get("_id")), exactLong(document.get("total"))));
+        }
+        return List.copyOf(rows);
+    }
+
+    private static long exactLong(Object value) {
+        if (value == null) return 0L;
+        if (value instanceof org.bson.types.Decimal128 decimal) {
+            return decimal.bigDecimalValue().longValueExact();
+        }
+        if (value instanceof java.math.BigDecimal decimal) return decimal.longValueExact();
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
+            return ((Number) value).longValue();
+        }
+        // MongoDB may promote overflows to double; that representation is not exact.
+        throw new ArithmeticException("MongoDB aggregation did not return an exact integer");
+    }
+
+    private static void requireLong(CollectionDefinition schema, String field) {
+        if (schema.field(field).type() != FieldType.LONG) {
+            throw new IllegalArgumentException("SUM requires a LONG database field");
+        }
     }
 
     @Override
@@ -179,6 +253,57 @@ final class MongoSession implements WriteSession {
         UpdateResult result = transaction == null ? collection(schema).updateOne(match, Updates.set(field, updated))
                 : collection(schema).updateOne(transaction, match, Updates.set(field, updated));
         return result.getMatchedCount() > 0;
+    }
+
+    /** Performs a conditional multi-document update under a required transaction. */
+    @Override
+    public long updateMatching(CollectionDefinition schema, RecordQuery query, Map<String, Object> changes) {
+        if (query.conditions().isEmpty()) {
+            throw new IllegalArgumentException("Conditional updates require a WHERE predicate");
+        }
+        if (transaction == null) {
+            throw new org.broken.arrow.library.database.api.DatabaseFailure(
+                    org.broken.arrow.library.database.api.DatabaseFailure.Reason.UNSUPPORTED,
+                    "MongoDB conditional multi-record updates require a transaction");
+        }
+        if (changes.isEmpty()) throw new IllegalArgumentException("No fields to update");
+        Document values = new Document();
+        for (var entry : changes.entrySet()) {
+            if (entry.getKey().equals(schema.idField())) {
+                throw new IllegalArgumentException("Cannot mutate the identifier");
+            }
+            var field = schema.field(entry.getKey());
+            schema.validateValue(field, entry.getValue());
+            values.put(MongoValues.name(schema, field.name()), MongoValues.encode(field.type(), entry.getValue()));
+        }
+        beforeMutation();
+        return collection(schema).updateMany(transaction, filter(schema, query),
+                new Document("$set", values)).getModifiedCount();
+    }
+
+    /**
+     * Deletes all matching documents in one MongoDB transaction.
+     * Standalone deployments cannot silently degrade to multiple independent deletes.
+     *
+     * @param schema validated collection descriptor
+     * @param query non-empty, schema-validated predicate
+     * @return exact number of deleted documents
+     */
+    @Override
+    public long deleteMatching(CollectionDefinition schema, RecordQuery query) {
+        java.util.Objects.requireNonNull(query, "query");
+        if (query.conditions().isEmpty()) {
+            throw new IllegalArgumentException("Bulk delete requires a WHERE predicate");
+        }
+        if (transaction == null) {
+            throw new org.broken.arrow.library.database.api.DatabaseFailure(
+                    org.broken.arrow.library.database.api.DatabaseFailure.Reason.UNSUPPORTED,
+                    "MongoDB bulk delete requires a multi-document transaction");
+        }
+        query.validate(schema);
+        Bson predicate = filter(schema, query);
+        beforeMutation();
+        return collection(schema).deleteMany(transaction, predicate).getDeletedCount();
     }
 
     private static void requireInteger(CollectionDefinition schema, String field) {

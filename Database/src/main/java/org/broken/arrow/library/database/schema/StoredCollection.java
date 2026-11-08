@@ -16,9 +16,17 @@ import org.broken.arrow.library.database.api.DatabaseManager;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface StoredCollection {
-    /** The SQL table or MongoDB collection name. */
+    /**
+     * The SQL table or MongoDB collection name.
+     *
+     * @return declared annotation value
+     */
     String value();
 
-    /** The Java record component containing the stable primary key. */
+    /**
+     * The Java record component containing the stable primary key.
+     *
+     * @return string representation of the requested value
+     */
     String idField() default "id";
 }

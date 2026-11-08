@@ -129,7 +129,12 @@ class StructuredRecordCodecsTest {
         /** Returns the existing Serialize Utility map representation. */
         @Override public Map<String, Object> serialize() { return Map.of("Label", label); }
 
-        /** Restores a configuration value from its portable map. */
+        /**
+         * Restores a configuration value from its portable map.
+         *
+         * @param source source value to convert
+         * @return computed result of the requested operation
+         */
         static LegacyConfig from(Map<String, Object> source) {
             return new LegacyConfig((String) source.get("Label"));
         }

@@ -8,7 +8,12 @@ public final class Identifiers {
 
     private Identifiers() { }
 
-    /** Returns a validated table, collection or field name, or throws. */
+    /**
+     * Returns a validated table, collection or field name, or throws.
+     *
+     * @param name validated name of the resource
+     * @return validated identifier suitable for use in database object names
+     */
     public static String require(String name) {
         if (name == null || !VALID.matcher(name).matches()) {
             throw new IllegalArgumentException("Invalid database identifier");

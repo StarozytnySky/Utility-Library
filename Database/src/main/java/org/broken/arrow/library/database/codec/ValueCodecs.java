@@ -42,7 +42,11 @@ public final class ValueCodecs {
         this.custom = Map.copyOf(custom);
     }
 
-    /** Creates a registry containing the built-in scalar and structured codecs. */
+    /**
+     * Creates a registry containing the built-in scalar and structured codecs.
+     *
+     * @return computed result of the requested operation
+     */
     public static ValueCodecs defaults() {
         return new ValueCodecs(Map.of());
     }
@@ -111,7 +115,14 @@ public final class ValueCodecs {
         Object decode(Object stored);
     }
 
-    /** Resolves a declared component type and optional per-field codec. */
+    /**
+     * Resolves a declared component type and optional per-field codec.
+     *
+     * @param type declared Java or database field type
+     * @param override per-field converter, or null for the registered converter
+     * @param depth current nested-serialization depth used to reject cycles
+     * @return computed result of the requested operation
+     */
     Adapter adapter(Type type, Class<? extends ValueCodec<?>> override, int depth) {
         if (depth > MAX_DEPTH) throw new IllegalArgumentException("Database model nesting exceeds " + MAX_DEPTH);
         Class<?> raw = rawClass(type);
@@ -385,7 +396,13 @@ public final class ValueCodecs {
         throw new IllegalArgumentException("Non-portable JSON value: " + value.getClass().getName());
     }
 
-    /** Encodes supported typed map keys using reversible textual representations. */
+    /**
+     * Encodes supported typed map keys using reversible textual representations.
+     *
+     * @param value value to encode, validate, or store
+     * @param type declared Java or database field type
+     * @return string representation of the requested value
+     */
     private static String encodeKey(Object value, Class<?> type) {
         if (type == String.class && value instanceof String string) return string;
         if (type == UUID.class && value instanceof UUID id) return id.toString();
@@ -393,7 +410,13 @@ public final class ValueCodecs {
         throw new IllegalArgumentException("Unexpected map key type: " + value.getClass().getName());
     }
 
-    /** Restores keys after JSON/BSON object-key normalization. */
+    /**
+     * Restores keys after JSON/BSON object-key normalization.
+     *
+     * @param value value to encode, validate, or store
+     * @param type declared Java or database field type
+     * @return computed result of the requested operation
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static Object decodeKey(String value, Class<?> type) {
         if (type == String.class) return value;

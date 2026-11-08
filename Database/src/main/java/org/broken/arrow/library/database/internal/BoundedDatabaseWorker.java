@@ -20,7 +20,14 @@ public final class BoundedDatabaseWorker implements AutoCloseable {
     private final Duration shutdownTimeout;
     private volatile boolean terminated;
 
-    /** Creates a fixed worker with a hard queue limit. */
+    /**
+     * Creates a fixed worker with a hard queue limit.
+     *
+     * @param threads number of database worker threads
+     * @param capacity maximum number of queued database tasks
+     * @param shutdownTimeout maximum time allowed for graceful worker shutdown
+     * @param threadPrefix name prefix used for worker threads
+     */
     public BoundedDatabaseWorker(int threads, int capacity, Duration shutdownTimeout, String threadPrefix) {
         if (threads < 1 || capacity < 1) throw new IllegalArgumentException("Invalid worker limits");
         this.shutdownTimeout = Objects.requireNonNull(shutdownTimeout, "shutdownTimeout");
@@ -34,7 +41,13 @@ public final class BoundedDatabaseWorker implements AutoCloseable {
                 new ArrayBlockingQueue<>(capacity), factory, new ThreadPoolExecutor.AbortPolicy());
     }
 
-    /** Submits blocking work and makes saturation an observable exceptional future. */
+    /**
+     * Submits blocking work and makes saturation an observable exceptional future.
+     *
+     * @param <T> type of the record or value returned by the operation
+     * @param work database operation executed within the provided session
+     * @return future containing the outcome of the requested operation
+     */
     public <T> CompletableFuture<T> submit(Callable<T> work) {
         Job<T> job = new Job<>(work);
         try {
@@ -46,7 +59,11 @@ public final class BoundedDatabaseWorker implements AutoCloseable {
         return job.future;
     }
 
-    /** Returns an immutable monitoring snapshot. */
+    /**
+     * Returns an immutable monitoring snapshot.
+     *
+     * @return current immutable database worker metrics
+     */
     public DatabaseWorkerMetrics snapshot() {
         return new DatabaseWorkerMetrics(executor.getActiveCount(), executor.getQueue().size(),
                 executor.getPoolSize(), executor.getCompletedTaskCount());
@@ -67,7 +84,11 @@ public final class BoundedDatabaseWorker implements AutoCloseable {
         }
     }
 
-    /** Returns whether every running database operation has finished. */
+    /**
+     * Returns whether every running database operation has finished.
+     *
+     * @return true if the requested condition is satisfied
+     */
     public boolean isTerminated() { return terminated; }
 
     /** Waits until every active operation has stopped, preserving interruption state. */

@@ -5,19 +5,24 @@ plugins {
 }
 
 group = "org.broken.arrow.library"
-description = "Database 2.3 — portable SQL/MongoDB database engine"
-version = "2.3.0-SNAPSHOT"
+description = "Database 2.5 — portable SQL/MongoDB database engine"
+version = "2.5.0-SNAPSHOT"
 
 // No legacy Java 8 compatibility for the rewritten Database module.
 java {
     toolchain.languageVersion.set(JavaLanguageVersion.of(25))
-    withSourcesJar()
+    // Sources are registered by the root build for every library module.
     withJavadocJar()
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
     options.release.set(25)
+}
+
+// The Bukkit API used by the optional plugin bootstrap is a Spigot snapshot artifact.
+repositories {
+    maven("https://hub.spigotmc.org/nexus/content/repositories/snapshots/")
 }
 
 dependencies {
@@ -45,6 +50,8 @@ dependencies {
     compileOnly(libs.org.apache.logging.log4j.log4j.api)
     compileOnly(libs.apache.logging.log4j.core)
 
+    // DatabaseManager exposes Plugin overloads; testCompileJava must resolve that public type.
+    testImplementation(libs.org.spigotmc.spigotapi)
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.3")
 }
@@ -69,4 +76,22 @@ val verifyNoLegacyDatabaseSources by tasks.registering {
 
 tasks.named("check") {
     dependsOn(verifyNoLegacyDatabaseSources)
+}
+
+// Keep the facade package intentionally small: feature types belong to their own package.
+val verifyDatabasePackageLayout by tasks.registering {
+    group = "verification"
+    description = "Rejects accidental growth of the root Database API package"
+    doLast {
+        val apiDir = file("src/main/java/org/broken/arrow/library/database/api")
+        val permitted = setOf("DatabaseClient.java", "DatabaseManager.java", "DatabaseFailure.java", "package-info.java")
+        val unexpected = apiDir.listFiles()?.asSequence()
+            ?.filter { it.isFile && it.extension == "java" && it.name !in permitted }
+            ?.map { it.name }?.toList().orEmpty()
+        check(unexpected.isEmpty()) { "Move feature types out of database.api: $unexpected" }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(verifyDatabasePackageLayout)
 }

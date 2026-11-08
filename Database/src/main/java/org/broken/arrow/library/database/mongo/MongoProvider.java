@@ -30,7 +30,11 @@ public final class MongoProvider implements DatabaseProvider {
     private final MongoDatabase database;
     private final boolean transactionsSupported;
 
-    /** Opens a shared client and verifies topology, authentication and connectivity. */
+    /**
+     * Opens a shared client and verifies topology, authentication and connectivity.
+     *
+     * @param config validated connection and worker configuration
+     */
     public MongoProvider(DatabaseConfiguration config) {
         if (config.kind() != DatabaseKind.MONGODB) throw new IllegalArgumentException("MongoDB kind required");
         MongoClientSettings.Builder builder = MongoClientSettings.builder()
@@ -129,22 +133,43 @@ public final class MongoProvider implements DatabaseProvider {
     public void createIfAbsent(CollectionDefinition schema) {
         Objects.requireNonNull(schema, "schema");
         try {
+            boolean exists = false;
             for (String name : database.listCollectionNames()) {
-                if (schema.name().equals(name)) return;
+                if (schema.name().equals(name)) {
+                    exists = true;
+                    break;
+                }
             }
-            database.createCollection(schema.name());
-        } catch (MongoCommandException failure) {
-            // Concurrent first boot of two instances may create the same collection.
-            if (failure.getErrorCode() != 48) throw wrap("Create MongoDB collection", failure);
+            if (!exists) {
+                try {
+                    database.createCollection(schema.name());
+                } catch (MongoCommandException failure) {
+                    if (failure.getErrorCode() != 48) throw failure;
+                }
+            }
+            for (CollectionDefinition.Index index : schema.indexes()) {
+                java.util.List<String> columns = index.columns().stream()
+                        .map(field -> MongoValues.name(schema, field)).toList();
+                database.getCollection(schema.name()).createIndex(
+                        com.mongodb.client.model.Indexes.ascending(columns),
+                        new com.mongodb.client.model.IndexOptions()
+                                .name(index.name()).unique(index.unique()));
+            }
         } catch (MongoException failure) {
-            throw wrap("Create MongoDB collection", failure);
+            throw wrap("Initialize MongoDB schema and indexes", failure);
         }
     }
 
     @Override
     public void close() { client.close(); }
 
-    /** Classifies driver failures without exposing connection URLs or record values. */
+    /**
+     * Classifies driver failures without exposing connection URLs or record values.
+     *
+     * @param operation name of the database operation used for diagnostics
+     * @param failure underlying error that caused the operation to fail
+     * @return computed result of the requested operation
+     */
     static DatabaseFailure wrap(String operation, Throwable failure) {
         DatabaseFailure.Reason reason = failure instanceof MongoWriteException write && write.getError().getCode() == 11000
                 ? DatabaseFailure.Reason.CONFLICT : DatabaseFailure.Reason.OPERATION;

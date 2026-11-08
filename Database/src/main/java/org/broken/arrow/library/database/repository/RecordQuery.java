@@ -16,6 +16,13 @@ public record RecordQuery(List<Condition> conditions, String orderBy, boolean de
 
     /** A typed filter with a single parameter; null is supported by EQ and NE only. */
     public record Condition(String field, Operator operator, Object value) {
+        /**
+         * Validates the supplied record components before construction.
+         *
+         * @param field validated field name or field definition
+         * @param operator comparison operation to apply
+         * @param value value to encode, validate, or store
+         */
         public Condition {
             Identifiers.require(field);
             Objects.requireNonNull(operator, "operator");
@@ -25,6 +32,15 @@ public record RecordQuery(List<Condition> conditions, String orderBy, boolean de
         }
     }
 
+    /**
+     * Validates the supplied record components before construction.
+     *
+     * @param conditions value of conditions used by this operation
+     * @param orderBy value of order by used by this operation
+     * @param descending whether rows should be sorted in descending order
+     * @param limit maximum number of aggregate results to return
+     * @param offset number of records to skip before returning a page
+     */
     public RecordQuery {
         conditions = List.copyOf(conditions);
         if (orderBy != null) Identifiers.require(orderBy);

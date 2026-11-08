@@ -62,34 +62,88 @@ public final class DatabaseConfiguration {
         }
     }
 
-    /** Creates a configuration for the given backend. */
+    /**
+     * Creates a configuration for the given backend.
+     *
+     * @param kind requested database engine
+     * @param address backend connection URL or address
+     * @return configuration builder initialized for the chosen engine
+     */
     public static Builder forKind(DatabaseKind kind, String address) {
         return new Builder(kind, address);
     }
 
-    /** Returns the selected database backend. */
+    /**
+     * Returns the selected database backend.
+     *
+     * @return configured database engine
+     */
     public DatabaseKind kind() { return kind; }
-    /** Returns the configured address, including its JDBC or MongoDB scheme. */
+    /**
+     * Returns the configured address, including its JDBC or MongoDB scheme.
+     *
+     * @return string representation of the requested value
+     */
     public String address() { return address; }
-    /** Returns the logical MongoDB database name. */
+    /**
+     * Returns the logical MongoDB database name.
+     *
+     * @return current builder after setting the MongoDB database name
+     */
     public String database() { return database; }
-    /** Returns the optional database username. */
+    /**
+     * Returns the optional database username.
+     *
+     * @return string representation of the requested value
+     */
     public String username() { return username; }
-    /** Returns the optional database password. */
+    /**
+     * Returns the optional database password.
+     *
+     * @return string representation of the requested value
+     */
     public String password() { return password; }
-    /** Returns the configured maximum pool size. */
+    /**
+     * Returns the configured maximum pool size.
+     *
+     * @return current builder after configuring connection pooling
+     */
     public int poolSize() { return poolSize; }
-    /** Returns the number of blocking database worker threads. */
+    /**
+     * Returns the number of blocking database worker threads.
+     *
+     * @return numeric result of the requested operation
+     */
     public int workerCount() { return workerCount; }
-    /** Returns the maximum number of pending database tasks. */
+    /**
+     * Returns the maximum number of pending database tasks.
+     *
+     * @return numeric result of the requested operation
+     */
     public int queueCapacity() { return queueCapacity; }
-    /** Returns the connection acquisition timeout. */
+    /**
+     * Returns the connection acquisition timeout.
+     *
+     * @return current builder after setting the connection timeout
+     */
     public Duration connectionTimeout() { return connectionTimeout; }
-    /** Returns the graceful worker shutdown timeout. */
+    /**
+     * Returns the graceful worker shutdown timeout.
+     *
+     * @return current builder after setting the shutdown timeout
+     */
     public Duration shutdownTimeout() { return shutdownTimeout; }
-    /** Returns the SQLite busy timeout in milliseconds. */
+    /**
+     * Returns the SQLite busy timeout in milliseconds.
+     *
+     * @return numeric result of the requested operation
+     */
     public int sqliteBusyTimeoutMillis() { return sqliteBusyTimeoutMillis; }
-    /** Returns the whether SQLite WAL mode is enabled. */
+    /**
+     * Returns the whether SQLite WAL mode is enabled.
+     *
+     * @return true if the requested condition is satisfied
+     */
     public boolean sqliteWal() { return sqliteWal; }
 
     /** Never write credentials or connection URIs into diagnostics. */
@@ -119,46 +173,88 @@ public final class DatabaseConfiguration {
             this.address = Objects.requireNonNull(address, "address");
         }
 
-        /** Sets a MongoDB logical database name. */
+        /**
+         * Sets a MongoDB logical database name.
+         *
+         * @param name validated name of the resource
+         * @return current builder after setting the MongoDB database name
+         */
         public Builder database(String name) { database = name; return this; }
 
-        /** Sets optional connection credentials. */
+        /**
+         * Sets optional connection credentials.
+         *
+         * @param user configured database username
+         * @param secret configured database password or secret
+         * @return current builder after configuring authentication
+         */
         public Builder credentials(String user, String secret) {
             username = user;
             password = secret;
             return this;
         }
 
-        /** Sets the connection pool size; SQLite must use exactly one. */
+        /**
+         * Sets the connection pool size; SQLite must use exactly one.
+         *
+         * @param size number of pooled connections
+         * @return current builder after configuring connection pooling
+         */
         public Builder poolSize(int size) { poolSize = size; return this; }
 
-        /** Sets the number of blocking I/O workers. */
+        /**
+         * Sets the number of blocking I/O workers.
+         *
+         * @param count maximum number of rows or records to process
+         * @param queue maximum number of waiting operations
+         * @return current builder after configuring workers and queue capacity
+         */
         public Builder workers(int count, int queue) {
             workerCount = count;
             queueCapacity = queue;
             return this;
         }
 
-        /** Sets the maximum connection acquisition time. */
+        /**
+         * Sets the maximum connection acquisition time.
+         *
+         * @param value value to encode, validate, or store
+         * @return current builder after setting the connection timeout
+         */
         public Builder connectionTimeout(Duration value) {
             connectionTimeout = Objects.requireNonNull(value, "value");
             return this;
         }
 
-        /** Sets how long the database waits during graceful shutdown. */
+        /**
+         * Sets how long the database waits during graceful shutdown.
+         *
+         * @param value value to encode, validate, or store
+         * @return current builder after setting the shutdown timeout
+         */
         public Builder shutdownTimeout(Duration value) {
             shutdownTimeout = Objects.requireNonNull(value, "value");
             return this;
         }
 
-        /** Configures SQLite busy handling and persistent WAL mode. */
+        /**
+         * Configures SQLite busy handling and persistent WAL mode.
+         *
+         * @param wal whether to enable SQLite write-ahead logging
+         * @param busyTimeoutMillis SQLite lock wait timeout in milliseconds
+         * @return current builder after configuring SQLite options
+         */
         public Builder sqliteOptions(boolean wal, int busyTimeoutMillis) {
             sqliteWal = wal;
             sqliteBusyTimeoutMillis = busyTimeoutMillis;
             return this;
         }
 
-        /** Validates and snapshots configuration before opening any network connection. */
+        /**
+         * Validates and snapshots configuration before opening any network connection.
+         *
+         * @return validated immutable result of the builder
+         */
         public DatabaseConfiguration build() { return new DatabaseConfiguration(this); }
     }
 }

@@ -17,7 +17,13 @@ import org.broken.arrow.library.database.schema.FieldType;
 final class JdbcValues {
     private JdbcValues() { }
 
-    /** Binds typed values including NULL in a stable order. */
+    /**
+     * Binds typed values including NULL in a stable order.
+     *
+     * @param statement prepared JDBC statement receiving bound parameters
+     * @param values ordered values to bind or encode
+     * @param types field types corresponding to bound parameters
+     */
     static void bind(PreparedStatement statement, Object[] values, FieldType[] types) throws SQLException {
         if (values.length != types.length) throw new IllegalArgumentException("Parameter metadata mismatch");
         for (int i = 0; i < values.length; i++) {
@@ -44,7 +50,13 @@ final class JdbcValues {
         }
     }
 
-    /** Converts each declared column to the same logical value type across providers. */
+    /**
+     * Converts each declared column to the same logical value type across providers.
+     *
+     * @param results JDBC result set positioned before its next row
+     * @param schema definition of the target table or collection
+     * @return value produced by the database read callback
+     */
     static Map<String, Object> read(ResultSet results, CollectionDefinition schema) throws SQLException {
         Map<String, Object> values = new LinkedHashMap<>();
         for (CollectionDefinition.Field field : schema.fields()) {
@@ -71,7 +83,12 @@ final class JdbcValues {
         return java.util.Collections.unmodifiableMap(values);
     }
 
-    /** Maps declared logical types to JDBC NULL type codes. */
+    /**
+     * Maps declared logical types to JDBC NULL type codes.
+     *
+     * @param type declared Java or database field type
+     * @return computed result of the requested operation
+     */
     static JDBCType jdbcType(FieldType type) {
         return switch (type) {
             case UUID, STRING -> JDBCType.VARCHAR;

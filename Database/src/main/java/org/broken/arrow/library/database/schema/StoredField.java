@@ -17,12 +17,24 @@ import org.broken.arrow.library.database.codec.ValueCodec;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface StoredField {
 
-    /** Overrides the database column/document field name; empty uses the component name. */
+    /**
+     * Overrides the database column/document field name; empty uses the component name.
+     *
+     * @return declared name of the field, index, or collection
+     */
     String name() default "";
 
-    /** Whether this field may contain a null value. */
+    /**
+     * Whether this field may contain a null value.
+     *
+     * @return whether null is permitted in the field
+     */
     boolean nullable() default false;
 
-    /** Optional stateless custom codec with an accessible no-argument constructor. */
+    /**
+     * Optional stateless custom codec with an accessible no-argument constructor.
+     *
+     * @return class describing the configured value type
+     */
     Class<? extends ValueCodec<?>> codec() default ValueCodec.Auto.class;
 }

@@ -91,6 +91,7 @@ class DatabaseManagerBootstrapTest {
         var loaded = DatabaseConfigurationLoader.load(file, temporary);
         assertEquals(DatabaseKind.SQLITE, loaded.kind());
         assertEquals(1, loaded.poolSize());
-        assertTrue(loaded.address().endsWith("data/records.db"));
+        Path actualFile = Path.of(loaded.address().substring("jdbc:sqlite:".length()));
+        assertEquals(temporary.resolve("data").resolve("records.db").toAbsolutePath().normalize(), actualFile);
     }
 }

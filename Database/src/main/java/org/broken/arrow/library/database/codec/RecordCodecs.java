@@ -13,6 +13,7 @@ import org.broken.arrow.library.database.schema.CollectionDefinition;
 import org.broken.arrow.library.database.schema.FieldType;
 import org.broken.arrow.library.database.schema.Identifiers;
 import org.broken.arrow.library.database.schema.StoredField;
+import org.broken.arrow.library.database.schema.StoredIndex;
 
 /**
  * Compiles record schema metadata and typed value adapters once at registration.
@@ -96,6 +97,9 @@ public final class RecordCodecs {
                     adapters[idIndex].fieldType());
             for (int index = 0; index < components.length; index++) {
                 if (index != idIndex) schema.field(columns[index], adapters[index].fieldType(), nullable[index]);
+            }
+            for (StoredIndex index : type.getAnnotationsByType(StoredIndex.class)) {
+                schema.index(index.name(), index.unique(), index.columns());
             }
             Constructor<T> constructor = type.getDeclaredConstructor(parameterTypes);
             MethodHandle creator = lookup.unreflectConstructor(constructor)
