@@ -91,7 +91,9 @@ public final class DatabaseConfigurationLoader {
                 .connectionTimeout(Duration.ofMillis(number(yaml, "database.connection-timeout-ms", 10_000)))
                 .shutdownTimeout(Duration.ofMillis(number(yaml, "database.shutdown-timeout-ms", 15_000)))
                 .sqliteOptions(yaml.getBoolean("database.sqlite-wal", true),
-                        number(yaml, "database.sqlite-busy-timeout-ms", 5_000));
+                        number(yaml, "database.sqlite-busy-timeout-ms", 5_000))
+                .sqliteSynchronousMode(SqliteSynchronousMode.parse(
+                        yaml.getString("database.sqlite-synchronous-mode", "FULL")));
         if (kind == DatabaseKind.MONGODB) {
             builder.database(required(yaml, "database.name"));
         }

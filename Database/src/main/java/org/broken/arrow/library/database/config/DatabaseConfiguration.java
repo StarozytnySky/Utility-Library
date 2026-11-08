@@ -17,6 +17,7 @@ public final class DatabaseConfiguration {
     private final Duration shutdownTimeout;
     private final int sqliteBusyTimeoutMillis;
     private final boolean sqliteWal;
+    private final SqliteSynchronousMode sqliteSynchronousMode;
 
     private DatabaseConfiguration(Builder builder) {
         kind = Objects.requireNonNull(builder.kind, "kind");
@@ -31,6 +32,7 @@ public final class DatabaseConfiguration {
         shutdownTimeout = builder.shutdownTimeout;
         sqliteBusyTimeoutMillis = builder.sqliteBusyTimeoutMillis;
         sqliteWal = builder.sqliteWal;
+        sqliteSynchronousMode = Objects.requireNonNull(builder.sqliteSynchronousMode, "sqliteSynchronousMode");
         if (poolSize < 1 || poolSize > 128) throw new IllegalArgumentException("poolSize out of range");
         if (workerCount < 1 || workerCount > 64) throw new IllegalArgumentException("workerCount out of range");
         if (queueCapacity < 1 || queueCapacity > 1_000_000) throw new IllegalArgumentException("queueCapacity out of range");
@@ -146,6 +148,13 @@ public final class DatabaseConfiguration {
      */
     public boolean sqliteWal() { return sqliteWal; }
 
+    /**
+     * Returns the allowlisted SQLite synchronous durability policy.
+     *
+     * @return selected FULL or NORMAL synchronization mode
+     */
+    public SqliteSynchronousMode sqliteSynchronousMode() { return sqliteSynchronousMode; }
+
     /** Never write credentials or connection URIs into diagnostics. */
     @Override
     public String toString() {
@@ -167,6 +176,7 @@ public final class DatabaseConfiguration {
         private Duration shutdownTimeout = Duration.ofSeconds(15);
         private int sqliteBusyTimeoutMillis = 5_000;
         private boolean sqliteWal = true;
+        private SqliteSynchronousMode sqliteSynchronousMode = SqliteSynchronousMode.FULL;
 
         private Builder(DatabaseKind kind, String address) {
             this.kind = Objects.requireNonNull(kind, "kind");
@@ -247,6 +257,17 @@ public final class DatabaseConfiguration {
         public Builder sqliteOptions(boolean wal, int busyTimeoutMillis) {
             sqliteWal = wal;
             sqliteBusyTimeoutMillis = busyTimeoutMillis;
+            return this;
+        }
+
+        /**
+         * Selects the SQLite durability policy used on every physical JDBC connection.
+         *
+         * @param mode FULL or NORMAL; unsafe OFF is not accepted
+         * @return current builder
+         */
+        public Builder sqliteSynchronousMode(SqliteSynchronousMode mode) {
+            sqliteSynchronousMode = Objects.requireNonNull(mode, "mode");
             return this;
         }
 

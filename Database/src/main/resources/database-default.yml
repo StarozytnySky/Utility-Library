@@ -5,6 +5,7 @@ database:
 
   # Local SQLite file relative to the plugin's data directory.
   sqlite-file: database.db
+  sqlite-synchronous-mode: FULL
   sqlite-wal: true
   sqlite-busy-timeout-ms: 5000
 

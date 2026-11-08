@@ -46,6 +46,8 @@ public final class JdbcProvider implements DatabaseProvider {
         if (kind == DatabaseKind.SQLITE) {
             hikari.setConnectionInitSql("PRAGMA foreign_keys=ON");
             hikari.addDataSourceProperty("busy_timeout", config.sqliteBusyTimeoutMillis());
+            // xerial applies SQLite PRAGMA options to every new physical connection.
+            hikari.addDataSourceProperty("synchronous", config.sqliteSynchronousMode().name());
         }
         try {
             pool = new HikariDataSource(hikari);
