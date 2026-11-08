@@ -14,7 +14,11 @@ import org.broken.arrow.library.database.construct.query.builder.table.column.Ta
 import org.broken.arrow.library.database.construct.query.builder.clause.wherebuilder.WhereBuilder;
 import org.broken.arrow.library.database.construct.query.builder.column.Column;
 import org.broken.arrow.library.database.core.Database;
+import org.broken.arrow.library.database.utility.checker.ExistingRowKeysView;
+import org.broken.arrow.library.database.utility.checker.RowContext;
+import org.broken.arrow.library.database.utility.checker.RowExistenceChecker;
 import org.broken.arrow.library.database.utility.query.build.SqlResultRow;
+import org.broken.arrow.library.logging.Validate;
 import org.broken.arrow.library.serialize.utility.serialize.ConfigurationSerializable;
 import org.broken.arrow.library.logging.Logging;
 
@@ -36,6 +40,8 @@ import java.util.TimerTask;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.logging.Level;
+import java.util.stream.Collectors;
+
 
 /**
  * Handles batch updates and operations on the database.
@@ -75,7 +81,7 @@ public class BatchExecutor<T> {
      * @param shallUpdate true to update existing rows if they exist, false to allow insert fallback.
      * @param columns     optional list of columns to save or update.
      */
-    public void saveAll(@Nonnull final String tableName, final boolean shallUpdate, String... columns) {
+    public void saveAll(@Nonnull final String tableName, final boolean shallUpdate, @Nullable final String... columns) {
         final List<SqlQuery> queryList = new ArrayList<>();
 
         final TableSchema table = this.database.getTableFromName(tableName);
@@ -100,14 +106,14 @@ public class BatchExecutor<T> {
      */
     public <K, V extends ConfigurationSerializable> void save(@Nonnull final String tableName, final boolean shallUpdate, final DatabaseQuerySaving<SaveRecord<K, V>> databaseQueryHandler) {
         final List<SqlQuery> queryList = new ArrayList<>();
+        final List<RowContext> toProcess = getRowContexts(tableName);
+        if (toProcess == null) return;
 
-        if (this.dataToProcess.isEmpty()) {
-            LOG.log(Level.WARNING, () -> "No query is not set for this table: " + tableName + ". You must have at least 1 command to save data to the database.");
-            return;
-        }
+        final List<String> matchKeys = databaseQueryHandler.getMatchKeys();
+        final RowResult rowResult = this.cacheRowsThatExists(tableName, toProcess, matchKeys.isEmpty() ? null : matchKeys.toArray(new String[0]));
 
-        for (T dataToSave : this.dataToProcess) {
-            final SaveRecord<K, V> saveRecord = getSaveRecord(dataToSave);
+        for (RowContext rowContext : toProcess) {
+            final SaveRecord<K, V> saveRecord = this.getSaveRecord(rowContext);
             final QueryBuilder queryBuilder = saveRecord != null ? saveRecord.getQueryBuilder() : null;
             if (saveRecord == null || queryBuilder == null || checkIfQuerySet(saveRecord, queryBuilder)) continue;
 
@@ -118,7 +124,7 @@ public class BatchExecutor<T> {
 
             if (hasUpdateIntent) {
                 final SqlQuery wrappedQuery = tableQuery.wrapQuery(queryBuilder);
-                canUpdateRow = this.checkIfRowExist(wrappedQuery, false);
+                canUpdateRow = isCanUpdateRow(rowResult, wrappedQuery, saveRecord);
             }
             final Map<Column, Object> toSave = this.getColumns(databaseQueryHandler, saveRecord, canUpdateRow);
             final Function<WhereBuilder, ConditionChainer<WhereBuilder>> whereClause = saveRecord.getWhereClause();
@@ -150,7 +156,6 @@ public class BatchExecutor<T> {
         final TableQuery tableQuery = new TableQuery(this.database.getDatabaseType(), tableName);
         final boolean columnsIsEmpty = columns == null || columns.length == 0;
         boolean canUpdateRow = false;
-        final Object primaryValue = dataWrapper.getPrimaryValue();
         final WriteContext primaryWrapper = dataWrapper.getWriteContext();
         final boolean isManualInsertOrUpdate = !table.isAutoIncrementTable();
         final boolean hasUpdateIntent = !columnsIsEmpty || shallUpdate;
@@ -168,10 +173,8 @@ public class BatchExecutor<T> {
         final Map<Column, Object> columnValueMap = new HashMap<>(formatData(dataWrapper, canUpdateRow ? columns : null));
 
         for (TableColumn primary : table.getPrimaryColumns()) {
-            Object value = primaryValue;
-            if (value == null || value.toString().isEmpty()) {
-                value = primaryWrapper.getValue(primary.getColumnName());
-            }
+            final Object value = primaryWrapper.getValue(primary.getColumnName());
+
             if (value == null) continue;
             columnValueMap.put(primary, value);
         }
@@ -200,7 +203,7 @@ public class BatchExecutor<T> {
         }
         final TableQuery tableQuery = new TableQuery(this.database.getDatabaseType(), tableName);
         List<SqlQuery> queryList = new ArrayList<>();
-        values.forEach(value-> queryList.add(tableQuery.removeRow(where -> whereClause.apply(where, value))));
+        values.forEach(value -> queryList.add(tableQuery.removeRow(where -> whereClause.apply(where, value))));
 
         this.executeDatabaseTasks(queryList);
     }
@@ -480,7 +483,7 @@ public class BatchExecutor<T> {
         }
     }
 
-    private static void callbackGeneratedKeys(final PreparedStatement statement, final Consumer<SqlResultRow> callback) throws SQLException {
+    private void callbackGeneratedKeys(final PreparedStatement statement, final Consumer<SqlResultRow> callback) throws SQLException {
         if (callback == null) return;
 
         try (ResultSet rs = statement.getGeneratedKeys()) {
@@ -535,7 +538,7 @@ public class BatchExecutor<T> {
     }
 
     @Nullable
-    private <K, V extends ConfigurationSerializable> SaveRecord<K, V> getSaveRecord(T dataToSave) {
+    private <K, V extends ConfigurationSerializable> SaveRecord<K, V> getSaveRecord(Object dataToSave) {
         if (!(dataToSave instanceof SaveRecord<?, ?>)) {
             LOG.log(Level.WARNING, () -> "Failed to process this data as it is: '" + dataToSave + "' or not an instance of SaveContext");
             return null;
@@ -554,7 +557,7 @@ public class BatchExecutor<T> {
             return true;
         }
         if (!queryBuilder.isQuerySet()) {
-            LOG.log(Level.WARNING, () -> "query is not correct setup: " + saveRecord.getKey() + ". It seams like you never chose the type of command to execute on the database.");
+            LOG.log(Level.WARNING, () -> "query is not correct setup: " + saveRecord.getKey() + ". It seems like you never choose the type of command to execute on the database.");
             return true;
         }
 
@@ -585,42 +588,46 @@ public class BatchExecutor<T> {
         return !checkIfNotNull(dataWrapper);
     }
 
-    private void handleBatchSave(@Nonnull final List<SqlQuery> queryList, final boolean shallUpdate, final String[] columns, final TableSchema table) {
+    private void handleBatchSave(@Nonnull final List<SqlQuery> queryList, final boolean shallUpdate, @Nullable final String[] columns, @Nonnull final TableSchema table) {
         final String tableName = table.getTableName();
-        for (T dataToSave : this.dataToProcess) {
-            if (!(dataToSave instanceof DataWrapper)) continue;
+        final List<RowContext> toProcess = this.dataToProcess.stream()
+                .filter(DataWrapper.class::isInstance)
+                .map(RowContext.class::cast)
+                .collect(Collectors.toList());
+        Validate.checkBoolean(toProcess.isEmpty(), "Can't prooses an empty list, for this table:" + tableName);
 
-            final DataWrapper dataWrapper = (DataWrapper) dataToSave;
+        final RowResult keysView = this.cacheRowsThatExists(tableName, toProcess, columns);
 
+        for (RowContext rowContext : toProcess) {
+            final DataWrapper dataWrapper = (DataWrapper) rowContext;
             final TableQuery tableQuery = new TableQuery(this.database.getDatabaseType(), tableName);
             final boolean columnsIsEmpty = columns == null || columns.length == 0;
             boolean canUpdateRow = false;
-            final Object legacyPrimaryValue = dataWrapper.getPrimaryValue();
             final WriteContext primaryWrapper = dataWrapper.getWriteContext();
             final WhereClauseFunction whereClauseCallback = primaryWrapper.getWhereClause();
 
-
-            final Function<WhereBuilder, ConditionChainer<WhereBuilder>> finalWhereStrategy = this.getWhereStrategy(table, whereClauseCallback, legacyPrimaryValue);
+            final Function<WhereBuilder, ConditionChainer<WhereBuilder>> whereStrategy = this.getWhereStrategy(whereClauseCallback);
             final boolean isManualInsertOrUpdate = !table.isAutoIncrementTable();
             final boolean hasUpdateIntent = !columnsIsEmpty || shallUpdate;
             final boolean primaryValueSet = primaryWrapper.getColumnContext().values().stream().noneMatch(Objects::isNull);
 
-            if (isManualInsertOrUpdate && !primaryValueSet) {
-                LOG.log(Level.WARNING,() -> "You must provide valid where clause if, it shall insert or update rows.");
+            if ((isManualInsertOrUpdate && whereStrategy == null) || (isManualInsertOrUpdate && !primaryValueSet)) {
+                LOG.log(Level.WARNING, () -> "You must provide valid where clause if, it shall update rows.");
             }
 
-            if (primaryValueSet && hasUpdateIntent) {
+            if (whereStrategy != null && primaryValueSet && hasUpdateIntent) {
                 final SqlQuery query = tableQuery.selectRow(columnManger -> {
                     columnManger.addAll(table.getPrimaryColumnsWrapped());
-                }, true, finalWhereStrategy);
-                canUpdateRow = this.checkIfRowExist(query, false);
+                }, true, whereStrategy);
+                canUpdateRow = isCanUpdateRow(keysView, query, dataWrapper);
             }
+
             tableQuery.setQueryPlaceholders(this.database.isSecureQuery());
             final Map<Column, Object> columnValueMap = new HashMap<>(formatData(dataWrapper, canUpdateRow ? columns : null));
 
-            setPrimaryColumnsWithValue(table, legacyPrimaryValue, primaryWrapper, columnValueMap);
+            this.setPrimaryColumnsWithValue(table, primaryWrapper, columnValueMap);
 
-            final SqlQuery queryPair = this.databaseConfig.applyDatabaseCommand(tableQuery, columnValueMap, finalWhereStrategy, canUpdateRow);
+            final SqlQuery queryPair = this.databaseConfig.applyDatabaseCommand(tableQuery, columnValueMap, whereStrategy, canUpdateRow);
             final Consumer<SqlResultRow> generatedKeyCallback = dataWrapper.getGeneratedKeyCallback();
             if (generatedKeyCallback != null) {
                 queryPair.setGeneratedKeyCallback(generatedKeyCallback);
@@ -629,34 +636,90 @@ public class BatchExecutor<T> {
         }
     }
 
-    @Nonnull
-    private Function<WhereBuilder, ConditionChainer<WhereBuilder>> getWhereStrategy(TableSchema table, WhereClauseFunction whereClauseCallback, Object legacyPrimaryValue) {
-        return whereBuilder -> {
-            if (whereClauseCallback != null) {
-                return whereClauseCallback.apply(whereBuilder);
-            }
-            return table.createWhereClauseFromPrimaryColumns(whereBuilder, legacyPrimaryValue);
-        };
+    private boolean isCanUpdateRow(@Nonnull final RowResult keysView, @Nonnull final SqlQuery query, @Nonnull final RowContext rowContext) {
+        return keysView.isAreAllEqual() ? keysView.contains(rowContext) : this.checkIfRowExist(query, false);
     }
 
-    private static void setPrimaryColumnsWithValue(TableSchema table, Object legacyPrimaryValue, WriteContext primaryWrapper, Map<Column, Object> columnValueMap) {
+    @Nonnull
+    private RowResult cacheRowsThatExists(@Nonnull final String tableName, @Nonnull final List<RowContext> toProcess, @Nullable final String[] columns) {
+        ExistingRowKeysView keysView = null;
+        boolean areAllEqual = true;
+        try {
+            final String[] matchingColumns;
+            if (columns == null || columns.length == 0) {
+                String[] columnsContext = null;
+                int minAmount = Integer.MAX_VALUE;
+                int maxAmount = Integer.MIN_VALUE;
+                for (RowContext dataWrapper : toProcess) {
+                    final Map<String, Object> columnContext = dataWrapper.getColumnContext();
+                    final int currentLength = columnContext.size();
+
+                    if (columnsContext == null) {
+                        columnsContext = columnContext.keySet().toArray(new String[0]);
+                    }
+                    minAmount = Math.min(minAmount, currentLength);
+                    maxAmount = Math.max(maxAmount, currentLength);
+                }
+                areAllEqual = (minAmount == maxAmount);
+                matchingColumns = columnsContext;
+            } else {
+                matchingColumns = columns;
+            }
+            keysView = RowExistenceChecker.make(tableName, this.database.getDatabaseType(), connection, toProcess)
+                    .matchOn(matchingColumns)
+                    .findExisting();
+        } catch (SQLException e) {
+            LOG.log(e, () -> "Could not check if the rows exists for table '" + tableName + "', check the stack trace.");
+        }
+        return new RowResult(keysView, areAllEqual);
+    }
+
+    @Nullable
+    private Function<WhereBuilder, ConditionChainer<WhereBuilder>> getWhereStrategy(WhereClauseFunction whereClauseCallback) {
+        if (whereClauseCallback != null)
+            return whereClauseCallback::apply;
+        return null;
+    }
+
+    private void setPrimaryColumnsWithValue(@Nonnull final TableSchema table, @Nonnull final WriteContext primaryWrapper, @Nonnull final Map<Column, Object> columnValueMap) {
         for (TableColumn primary : table.getPrimaryColumns()) {
-            Object value = legacyPrimaryValue;
-            if (value == null || value.toString().isEmpty())
-                value = primaryWrapper.getValue(primary.getColumnName());
+            Object value = primaryWrapper.getValue(primary.getColumnName());
             if (value == null) continue;
             columnValueMap.put(primary, value);
         }
     }
 
-
     @Nullable
-    private DataWrapper getDataWrapper(T dataToSave) {
-        if (!(dataToSave instanceof DataWrapper)) {
-            LOG.log(Level.WARNING, () -> "Failed to process this save record as it is: '" + dataToSave.getClass() + "' or not an instance of DataWrapper");
+    private <K, V extends ConfigurationSerializable> List<RowContext> getRowContexts(@Nonnull String tableName) {
+        final List<RowContext> toProcess = this.dataToProcess.stream()
+                .filter(SaveRecord.class::isInstance)
+                .map(this::<K, V>getSaveRecord)
+                .collect(Collectors.toList());
+        if (toProcess.isEmpty()) {
+            LOG.log(Level.WARNING, () -> "No query is not set for this table: '" + tableName + "'. You must have at least 1 query command for allowing saving data to the database.");
             return null;
         }
-        return (DataWrapper) dataToSave;
+        return toProcess;
+    }
+
+    private static class RowResult {
+        private final ExistingRowKeysView keysView;
+        private final boolean areAllEqual;
+
+        public RowResult(ExistingRowKeysView keysView, boolean areAllEqual) {
+            this.keysView = keysView;
+            this.areAllEqual = areAllEqual;
+        }
+
+        public boolean contains(@Nonnull final RowContext context) {
+            if (keysView == null)
+                return false;
+            return keysView.contains(context);
+        }
+
+        public boolean isAreAllEqual() {
+            return areAllEqual;
+        }
     }
 
 }
