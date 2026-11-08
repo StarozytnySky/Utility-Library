@@ -1,4 +1,4 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.schema;
 
 /** Cross-provider field types. JSON fields carry portable structured values. */
 public enum FieldType {

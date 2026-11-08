@@ -1,16 +1,5 @@
 package org.broken.arrow.library.database;
 
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.DatabaseClient;
-import org.broken.arrow.library.database.api.DatabaseConfiguration;
-import org.broken.arrow.library.database.api.DatabaseKind;
-import org.broken.arrow.library.database.api.FieldType;
-import org.broken.arrow.library.database.api.RecordCodec;
-import org.broken.arrow.library.database.api.RecordQuery;
-import org.broken.arrow.library.database.api.RecordRepository;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -18,6 +7,17 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
+
+import org.broken.arrow.library.database.api.DatabaseClient;
+import org.broken.arrow.library.database.codec.RecordCodec;
+import org.broken.arrow.library.database.config.DatabaseConfiguration;
+import org.broken.arrow.library.database.config.DatabaseKind;
+import org.broken.arrow.library.database.repository.RecordQuery;
+import org.broken.arrow.library.database.repository.RecordRepository;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.*;
 

@@ -1,7 +1,9 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.session;
+
+import java.util.List;
 
 import java.util.Map;
-import java.util.List;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
 
 /** A borrowed write view; only its owner commits/rolls back a transaction. */
 public interface WriteSession extends ReadSession {

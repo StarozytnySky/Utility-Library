@@ -1,20 +1,20 @@
 package org.broken.arrow.library.database;
 
-import org.broken.arrow.library.database.api.DatabaseConfiguration;
-import org.broken.arrow.library.database.api.DatabaseConfigurationLoader;
-import org.broken.arrow.library.database.api.DatabaseKind;
-import org.broken.arrow.library.database.api.DatabaseManager;
-import org.broken.arrow.library.database.api.RecordRepository;
-import org.broken.arrow.library.database.api.StoredCollection;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
+import org.broken.arrow.library.database.api.DatabaseManager;
+import org.broken.arrow.library.database.config.DatabaseConfiguration;
+import org.broken.arrow.library.database.config.DatabaseConfigurationLoader;
+import org.broken.arrow.library.database.config.DatabaseKind;
+import org.broken.arrow.library.database.repository.RecordRepository;
+import org.broken.arrow.library.database.schema.StoredCollection;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.*;
 

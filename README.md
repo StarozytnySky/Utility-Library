@@ -1,3 +1,5 @@
+> **Database 2.3:** See [DATABASE_2_3_PACKAGES.md](DATABASE_2_3_PACKAGES.md) for the new package structure and updated imports.
+
 > **Database 2.2:** See [DATABASE_2_2_CHANGES.md](DATABASE_2_2_CHANGES.md) for automatic plugin bootstrap, portable repository registration and schema initialization.
 
 # Utility-Library

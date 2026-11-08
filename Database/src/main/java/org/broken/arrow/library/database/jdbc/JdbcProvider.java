@@ -1,21 +1,22 @@
 package org.broken.arrow.library.database.jdbc;
 
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.DatabaseConfiguration;
-import org.broken.arrow.library.database.api.DatabaseFailure;
-import org.broken.arrow.library.database.api.DatabaseKind;
-import org.broken.arrow.library.database.api.DatabaseProvider;
-import org.broken.arrow.library.database.api.DatabaseWork;
-import org.broken.arrow.library.database.api.ReadSession;
-import org.broken.arrow.library.database.api.WriteSession;
-
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.Statement;
 import java.util.Objects;
+
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import org.broken.arrow.library.database.api.DatabaseFailure;
+import org.broken.arrow.library.database.config.DatabaseConfiguration;
+import org.broken.arrow.library.database.config.DatabaseKind;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.session.DatabaseWork;
+import org.broken.arrow.library.database.session.ReadSession;
+import org.broken.arrow.library.database.session.WriteSession;
+
+import org.broken.arrow.library.database.spi.DatabaseProvider;
 
 /** HikariCP-backed JDBC provider with explicit ownership and atomic transaction boundaries. */
 public final class JdbcProvider implements DatabaseProvider {

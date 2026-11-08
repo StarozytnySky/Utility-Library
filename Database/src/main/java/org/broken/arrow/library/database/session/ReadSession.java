@@ -1,8 +1,11 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.session;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import org.broken.arrow.library.database.repository.RecordQuery;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
 
 /** A borrowed, operation-scoped view that cannot modify database state. */
 public interface ReadSession {

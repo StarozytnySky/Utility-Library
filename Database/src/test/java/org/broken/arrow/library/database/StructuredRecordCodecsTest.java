@@ -1,21 +1,21 @@
 package org.broken.arrow.library.database;
 
-import org.broken.arrow.library.database.api.FieldType;
-import org.broken.arrow.library.database.api.RecordCodec;
-import org.broken.arrow.library.database.api.RecordCodecs;
-import org.broken.arrow.library.database.api.RecordQuery;
-import org.broken.arrow.library.database.api.StoredField;
-import org.broken.arrow.library.database.api.ValueCodec;
-import org.broken.arrow.library.database.api.ValueCodecs;
-import org.broken.arrow.library.serialize.utility.serialize.ConfigurationSerializable;
-import org.junit.jupiter.api.Test;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+
+import org.broken.arrow.library.database.codec.RecordCodec;
+import org.broken.arrow.library.database.codec.RecordCodecs;
+import org.broken.arrow.library.database.codec.ValueCodec;
+import org.broken.arrow.library.database.codec.ValueCodecs;
+import org.broken.arrow.library.database.repository.RecordQuery;
+import org.broken.arrow.library.database.schema.FieldType;
+import org.broken.arrow.library.database.schema.StoredField;
+import org.broken.arrow.library.serialize.utility.serialize.ConfigurationSerializable;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 

@@ -1,7 +1,5 @@
 package org.broken.arrow.library.database.internal;
 
-import org.broken.arrow.library.database.api.DatabaseFailure;
-
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -13,11 +11,11 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.broken.arrow.library.database.api.DatabaseFailure;
+import org.broken.arrow.library.database.diagnostics.DatabaseWorkerMetrics;
+
 /** Instance-owned bounded blocking worker; SQL never falls back to the caller thread. */
 public final class BoundedDatabaseWorker implements AutoCloseable {
-    /** Thread-safe snapshot of worker utilization. */
-    public record Snapshot(int running, int queued, int activeThreads, long completedTasks) { }
-
     private final ThreadPoolExecutor executor;
     private final Duration shutdownTimeout;
     private volatile boolean terminated;
@@ -49,8 +47,8 @@ public final class BoundedDatabaseWorker implements AutoCloseable {
     }
 
     /** Returns an immutable monitoring snapshot. */
-    public Snapshot snapshot() {
-        return new Snapshot(executor.getActiveCount(), executor.getQueue().size(),
+    public DatabaseWorkerMetrics snapshot() {
+        return new DatabaseWorkerMetrics(executor.getActiveCount(), executor.getQueue().size(),
                 executor.getPoolSize(), executor.getCompletedTaskCount());
     }
 

@@ -1,11 +1,12 @@
 package org.broken.arrow.library.database.internal;
 
-import org.broken.arrow.library.database.api.DatabaseConfiguration;
-import org.broken.arrow.library.database.api.DatabaseProvider;
+import java.util.Objects;
+
+import org.broken.arrow.library.database.config.DatabaseConfiguration;
 import org.broken.arrow.library.database.jdbc.JdbcProvider;
 import org.broken.arrow.library.database.mongo.MongoProvider;
 
-import java.util.Objects;
+import org.broken.arrow.library.database.spi.DatabaseProvider;
 
 /** Resolves database-specific implementation once during bootstrap, never inside repositories. */
 public final class ProviderFactory {

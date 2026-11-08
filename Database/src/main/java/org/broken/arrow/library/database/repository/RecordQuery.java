@@ -1,8 +1,12 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.repository;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
+import org.broken.arrow.library.database.schema.Identifiers;
 
 /** Immutable AND query usable with SQL prepared statements and MongoDB BSON filters. */
 public record RecordQuery(List<Condition> conditions, String orderBy, boolean descending,

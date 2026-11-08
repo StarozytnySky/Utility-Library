@@ -1,4 +1,11 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.spi;
+
+import org.broken.arrow.library.database.api.DatabaseClient;
+import org.broken.arrow.library.database.config.DatabaseKind;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.session.DatabaseWork;
+import org.broken.arrow.library.database.session.ReadSession;
+import org.broken.arrow.library.database.session.WriteSession;
 
 /** Backend-specific session boundary. Implementations are owned by one DatabaseClient. */
 public interface DatabaseProvider extends AutoCloseable {

@@ -1,4 +1,4 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.repository;
 
 import java.util.List;
 import java.util.Map;
@@ -6,12 +6,25 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
+import org.broken.arrow.library.database.api.DatabaseClient;
+import org.broken.arrow.library.database.codec.RecordCodec;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.session.ReadSession;
+import org.broken.arrow.library.database.session.WriteSession;
+
 /** Typed CRUD facade backed by the provider-independent record/session contracts. */
 public final class RecordRepository<T, ID> {
     private final DatabaseClient database;
     private final RecordCodec<T, ID> codec;
 
-    RecordRepository(DatabaseClient database, RecordCodec<T, ID> codec) {
+    /**
+     * Creates a typed repository for a precompiled codec and database client.
+     * Prefer {@link DatabaseClient#repository(RecordCodec)} for normal registration.
+     *
+     * @param database owning database client
+     * @param codec verified record mapping
+     */
+    public RecordRepository(DatabaseClient database, RecordCodec<T, ID> codec) {
         this.database = Objects.requireNonNull(database, "database");
         this.codec = Objects.requireNonNull(codec, "codec");
     }

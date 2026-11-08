@@ -1,8 +1,4 @@
-package org.broken.arrow.library.database.api;
-
-import org.bukkit.configuration.InvalidConfigurationException;
-import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.plugin.Plugin;
+package org.broken.arrow.library.database.config;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,6 +7,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Objects;
+
+import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.plugin.Plugin;
 
 /**
  * Reads plugin-local database settings without exposing provider-specific setup to consumers.

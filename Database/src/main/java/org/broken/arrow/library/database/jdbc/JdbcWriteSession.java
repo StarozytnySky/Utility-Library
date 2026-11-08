@@ -1,10 +1,5 @@
 package org.broken.arrow.library.database.jdbc;
 
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.DatabaseFailure;
-import org.broken.arrow.library.database.api.FieldType;
-import org.broken.arrow.library.database.api.WriteSession;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -12,12 +7,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.broken.arrow.library.database.api.DatabaseFailure;
+import org.broken.arrow.library.database.config.DatabaseKind;
+
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
+import org.broken.arrow.library.database.session.WriteSession;
+
 /** Writes via the same borrowed JDBC connection used for reads in the transaction. */
 final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
-    private final org.broken.arrow.library.database.api.DatabaseKind kind;
+    private final org.broken.arrow.library.database.config.DatabaseKind kind;
 
     JdbcWriteSession(Connection connection, SqlDialect dialect,
-                     org.broken.arrow.library.database.api.DatabaseKind kind) {
+                     org.broken.arrow.library.database.config.DatabaseKind kind) {
         super(connection, dialect);
         this.kind = kind;
     }
@@ -104,8 +106,8 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
             values.add(record.get(field));
             types.add(schema.field(field).type());
         }
-        if (kind == org.broken.arrow.library.database.api.DatabaseKind.MYSQL
-                || kind == org.broken.arrow.library.database.api.DatabaseKind.MARIADB) {
+        if (kind == org.broken.arrow.library.database.config.DatabaseKind.MYSQL
+                || kind == org.broken.arrow.library.database.config.DatabaseKind.MARIADB) {
             // Upsert is parameterized even in the MySQL/MariaDB update clause.
             for (String field : fields) {
                 if (!field.equals(schema.idField())) {

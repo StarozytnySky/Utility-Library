@@ -4,7 +4,7 @@ import org.broken.arrow.library.chunk.tracking.ChunkRelevanceTracker;
 import org.broken.arrow.library.command.CommandRegister;
 import org.broken.arrow.library.command.commandhandler.CommandRegistering;
 import org.broken.arrow.library.database.api.DatabaseClient;
-import org.broken.arrow.library.database.api.DatabaseConfiguration;
+import org.broken.arrow.library.database.config.DatabaseConfiguration;
 import org.broken.arrow.library.itemcreator.ItemCreator;
 import org.broken.arrow.library.menu.RegisterMenuAPI;
 import org.broken.arrow.library.visualization.BlockVisualize;

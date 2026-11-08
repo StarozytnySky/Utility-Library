@@ -1,4 +1,4 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.config;
 
 import java.time.Duration;
 import java.util.Objects;

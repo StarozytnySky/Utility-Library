@@ -1,12 +1,12 @@
 package org.broken.arrow.library.database;
 
-import org.broken.arrow.library.database.api.RecordCodec;
-import org.broken.arrow.library.database.api.RecordCodecs;
-import org.broken.arrow.library.database.api.StoredField;
-import org.junit.jupiter.api.Test;
-
 import java.time.Instant;
 import java.util.UUID;
+
+import org.broken.arrow.library.database.codec.RecordCodec;
+import org.broken.arrow.library.database.codec.RecordCodecs;
+import org.broken.arrow.library.database.schema.StoredField;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 

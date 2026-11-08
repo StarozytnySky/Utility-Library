@@ -1,4 +1,4 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.codec;
 
 /**
  * Converts a custom Java value to and from a portable, JSON-compatible tree.

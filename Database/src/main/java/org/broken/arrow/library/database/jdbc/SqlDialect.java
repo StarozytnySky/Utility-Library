@@ -1,12 +1,12 @@
 package org.broken.arrow.library.database.jdbc;
 
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.DatabaseKind;
-import org.broken.arrow.library.database.api.FieldType;
-import org.broken.arrow.library.database.api.Identifiers;
-
 import java.util.List;
 import java.util.stream.Collectors;
+
+import org.broken.arrow.library.database.config.DatabaseKind;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
+import org.broken.arrow.library.database.schema.Identifiers;
 
 /** Centralizes SQL grammar differences; portable code does not inspect the database type. */
 public final class SqlDialect {

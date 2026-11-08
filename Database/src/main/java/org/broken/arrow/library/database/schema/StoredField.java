@@ -1,9 +1,11 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.schema;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+
+import org.broken.arrow.library.database.codec.ValueCodec;
 
 /**
  * Optional persisted-field metadata on a Java record component.

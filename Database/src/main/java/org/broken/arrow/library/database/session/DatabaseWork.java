@@ -1,4 +1,4 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.session;
 
 /** Database work that may raise checked exceptions without swallowing the failure. */
 @FunctionalInterface

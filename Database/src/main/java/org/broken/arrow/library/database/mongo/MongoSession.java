@@ -1,24 +1,24 @@
 package org.broken.arrow.library.database.mongo;
 
-import com.mongodb.client.ClientSession;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.FindIterable;
-import com.mongodb.client.model.Filters;
-import com.mongodb.client.model.Updates;
-import com.mongodb.client.model.ReplaceOptions;
-import com.mongodb.client.result.UpdateResult;
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.FieldType;
-import org.broken.arrow.library.database.api.RecordQuery;
-import org.broken.arrow.library.database.api.WriteSession;
-import org.bson.Document;
-import org.bson.conversions.Bson;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import com.mongodb.client.ClientSession;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.ReplaceOptions;
+import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.UpdateResult;
+import org.broken.arrow.library.database.repository.RecordQuery;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
+import org.broken.arrow.library.database.session.WriteSession;
+import org.bson.Document;
+import org.bson.conversions.Bson;
 
 /** Per-operation MongoDB session. Every transactional statement shares one ClientSession. */
 final class MongoSession implements WriteSession {

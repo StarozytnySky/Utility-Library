@@ -1,20 +1,22 @@
 package org.broken.arrow.library.database;
 
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.DatabaseClient;
-import org.broken.arrow.library.database.api.DatabaseConfiguration;
-import org.broken.arrow.library.database.api.DatabaseKind;
-import org.broken.arrow.library.database.api.DatabaseManager;
-import org.broken.arrow.library.database.api.DatabaseProvider;
-import org.broken.arrow.library.database.api.DatabaseWork;
-import org.broken.arrow.library.database.api.ReadSession;
-import org.broken.arrow.library.database.api.StoredCollection;
-import org.broken.arrow.library.database.api.WriteSession;
-import org.junit.jupiter.api.Test;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+
+import org.broken.arrow.library.database.api.DatabaseClient;
+import org.broken.arrow.library.database.api.DatabaseManager;
+import org.broken.arrow.library.database.config.DatabaseConfiguration;
+import org.broken.arrow.library.database.config.DatabaseKind;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
+
+import org.broken.arrow.library.database.schema.StoredCollection;
+import org.broken.arrow.library.database.session.DatabaseWork;
+import org.broken.arrow.library.database.session.ReadSession;
+import org.broken.arrow.library.database.session.WriteSession;
+import org.broken.arrow.library.database.spi.DatabaseProvider;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -62,7 +64,7 @@ class DatabaseManagerRegistryTest {
             assertThrows(RuntimeException.class, () -> manager.initializeSchemasAsync().join());
             assertFalse(manager.isReady());
             assertThrows(IllegalStateException.class, () -> manager.registerSchema(
-                    CollectionDefinition.named("another", "id", org.broken.arrow.library.database.api.FieldType.UUID)
+                    CollectionDefinition.named("another", "id", org.broken.arrow.library.database.schema.FieldType.UUID)
                             .build()));
         }
     }

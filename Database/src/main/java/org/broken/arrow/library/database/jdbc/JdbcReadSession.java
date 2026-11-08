@@ -1,9 +1,5 @@
 package org.broken.arrow.library.database.jdbc;
 
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.ReadSession;
-import org.broken.arrow.library.database.api.RecordQuery;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -12,6 +8,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import org.broken.arrow.library.database.repository.RecordQuery;
+
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
+
+import org.broken.arrow.library.database.session.ReadSession;
 
 /** JDBC read adapter. The borrowed connection is never returned to callers. */
 class JdbcReadSession implements ReadSession {
@@ -29,7 +32,7 @@ class JdbcReadSession implements ReadSession {
                 + dialect.quote(schema.idField()) + " = ?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             JdbcValues.bind(statement, new Object[]{id},
-                    new org.broken.arrow.library.database.api.FieldType[]{schema.field(schema.idField()).type()});
+                    new org.broken.arrow.library.database.schema.FieldType[]{schema.field(schema.idField()).type()});
             statement.setMaxRows(1);
             try (ResultSet results = statement.executeQuery()) {
                 return results.next() ? Optional.of(JdbcValues.read(results, schema)) : Optional.empty();

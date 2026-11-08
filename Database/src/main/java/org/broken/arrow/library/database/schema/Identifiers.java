@@ -1,4 +1,4 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.schema;
 
 import java.util.regex.Pattern;
 

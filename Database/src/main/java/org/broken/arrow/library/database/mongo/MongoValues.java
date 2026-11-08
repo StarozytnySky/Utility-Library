@@ -1,17 +1,17 @@
 package org.broken.arrow.library.database.mongo;
 
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.FieldType;
-import org.bson.Document;
-import org.bson.types.Binary;
-import org.bson.types.Decimal128;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
+import org.bson.Document;
+import org.bson.types.Binary;
+import org.bson.types.Decimal128;
 
 /** Portable scalar codec: MongoDB stores the logical identifier in its unique _id key. */
 final class MongoValues {
@@ -57,7 +57,6 @@ final class MongoValues {
             case STRING -> value.toString();
         };
     }
-
 
     /** Normalizes structured objects into plain BSON-compatible maps and lists. */
     private static Object jsonValue(Object value) {

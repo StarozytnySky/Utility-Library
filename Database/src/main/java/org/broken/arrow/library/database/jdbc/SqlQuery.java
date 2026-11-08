@@ -1,11 +1,12 @@
 package org.broken.arrow.library.database.jdbc;
 
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.FieldType;
-import org.broken.arrow.library.database.api.RecordQuery;
-
 import java.util.ArrayList;
 import java.util.List;
+
+import org.broken.arrow.library.database.repository.RecordQuery;
+
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
 
 /** Safe SQL compiler for the portable immutable query predicate subset. */
 final class SqlQuery {

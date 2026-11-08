@@ -1,10 +1,23 @@
 package org.broken.arrow.library.database.api;
 
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+
+import org.broken.arrow.library.database.codec.RecordCodec;
+import org.broken.arrow.library.database.codec.RecordCodecs;
+import org.broken.arrow.library.database.codec.ValueCodecs;
+import org.broken.arrow.library.database.config.DatabaseConfiguration;
+import org.broken.arrow.library.database.config.DatabaseKind;
+import org.broken.arrow.library.database.diagnostics.DatabaseWorkerMetrics;
 import org.broken.arrow.library.database.internal.BoundedDatabaseWorker;
 import org.broken.arrow.library.database.internal.ProviderFactory;
 
-import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+import org.broken.arrow.library.database.repository.RecordRepository;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.session.DatabaseWork;
+import org.broken.arrow.library.database.session.ReadSession;
+import org.broken.arrow.library.database.session.WriteSession;
+import org.broken.arrow.library.database.spi.DatabaseProvider;
 
 /** Thread-safe database facade; plugin code uses this type regardless of backend. */
 public final class DatabaseClient implements AutoCloseable {
@@ -140,7 +153,7 @@ public final class DatabaseClient implements AutoCloseable {
     }
 
     /** Returns current worker capacity and queue diagnostics without user data. */
-    public BoundedDatabaseWorker.Snapshot snapshot() { return worker.snapshot(); }
+    public DatabaseWorkerMetrics snapshot() { return worker.snapshot(); }
 
     private <T> CompletableFuture<T> schedule(java.util.concurrent.Callable<T> action) {
         synchronized (lifecycleLock) {

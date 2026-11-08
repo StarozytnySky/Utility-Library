@@ -1,6 +1,4 @@
-package org.broken.arrow.library.database.api;
-
-import org.broken.arrow.library.serialize.utility.serialize.ConfigurationSerializable;
+package org.broken.arrow.library.database.codec;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -20,6 +18,11 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+
+import org.broken.arrow.library.database.schema.FieldType;
+import org.broken.arrow.library.database.schema.StoredField;
+
+import org.broken.arrow.library.serialize.utility.serialize.ConfigurationSerializable;
 
 /**
  * Immutable registry of custom value codecs plus type-safe built-in mapping.
@@ -346,6 +349,16 @@ public final class ValueCodecs {
     }
 
     /** Ensures a supplied custom codec cannot introduce unexpected runtime types. */
+    /**
+     * Validates and normalizes a structured value for provider-independent storage.
+     *
+     * @param value structured Java value to validate
+     * @return normalized, JSON-compatible representation
+     */
+    public static Object validatePortableValue(Object value) {
+        return portable(value, 0);
+    }
+
     static Object portable(Object value, int depth) {
         if (depth > MAX_DEPTH) throw new IllegalArgumentException("Stored structure exceeds maximum nesting");
         if (value == null || value instanceof String || value instanceof Boolean
@@ -371,7 +384,6 @@ public final class ValueCodecs {
         }
         throw new IllegalArgumentException("Non-portable JSON value: " + value.getClass().getName());
     }
-
 
     /** Encodes supported typed map keys using reversible textual representations. */
     private static String encodeKey(Object value, Class<?> type) {

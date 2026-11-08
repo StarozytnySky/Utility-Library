@@ -1,10 +1,12 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.schema;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+
+import org.broken.arrow.library.database.codec.ValueCodecs;
 
 /** Immutable, portable collection metadata shared by schema and CRUD operations. */
 public final class CollectionDefinition {
@@ -84,7 +86,7 @@ public final class CollectionDefinition {
             case DOUBLE -> value instanceof Double number && Double.isFinite(number);
             case BYTES -> value instanceof byte[];
             case JSON -> {
-                ValueCodecs.portable(value, 0);
+                ValueCodecs.validatePortableValue(value);
                 yield true;
             }
             case DECIMAL -> value instanceof java.math.BigDecimal number

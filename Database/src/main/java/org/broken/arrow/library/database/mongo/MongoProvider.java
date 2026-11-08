@@ -1,28 +1,28 @@
 package org.broken.arrow.library.database.mongo;
 
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoWriteException;
+import com.mongodb.TransactionOptions;
 import com.mongodb.WriteConcern;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.TransactionOptions;
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.DatabaseConfiguration;
 import org.broken.arrow.library.database.api.DatabaseFailure;
-import org.broken.arrow.library.database.api.DatabaseKind;
-import org.broken.arrow.library.database.api.DatabaseProvider;
-import org.broken.arrow.library.database.api.DatabaseWork;
-import org.broken.arrow.library.database.api.ReadSession;
-import org.broken.arrow.library.database.api.WriteSession;
+import org.broken.arrow.library.database.config.DatabaseConfiguration;
+import org.broken.arrow.library.database.config.DatabaseKind;
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.session.DatabaseWork;
+import org.broken.arrow.library.database.session.ReadSession;
+import org.broken.arrow.library.database.session.WriteSession;
+import org.broken.arrow.library.database.spi.DatabaseProvider;
 import org.bson.Document;
-
-import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 
 /** MongoDB backend with a built-in pool and explicit multi-document transaction detection. */
 public final class MongoProvider implements DatabaseProvider {

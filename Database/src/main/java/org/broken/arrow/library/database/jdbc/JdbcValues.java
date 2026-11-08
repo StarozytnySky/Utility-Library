@@ -1,8 +1,5 @@
 package org.broken.arrow.library.database.jdbc;
 
-import org.broken.arrow.library.database.api.CollectionDefinition;
-import org.broken.arrow.library.database.api.FieldType;
-
 import java.math.BigDecimal;
 import java.sql.JDBCType;
 import java.sql.PreparedStatement;
@@ -12,6 +9,9 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+
+import org.broken.arrow.library.database.schema.CollectionDefinition;
+import org.broken.arrow.library.database.schema.FieldType;
 
 /** Shared scalar conversions for all JDBC providers; no reflection-based runtime mapping. */
 final class JdbcValues {

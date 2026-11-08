@@ -1,4 +1,4 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.config;
 
 /** Identifies a database engine without leaking driver-specific APIs into repositories. */
 public enum DatabaseKind {

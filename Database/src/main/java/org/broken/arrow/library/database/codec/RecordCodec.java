@@ -1,6 +1,8 @@
-package org.broken.arrow.library.database.api;
+package org.broken.arrow.library.database.codec;
 
 import java.util.Map;
+
+import org.broken.arrow.library.database.schema.CollectionDefinition;
 
 /** Explicit and allocation-conscious mapping without reflection in the database hot path. */
 public interface RecordCodec<T, ID> {
