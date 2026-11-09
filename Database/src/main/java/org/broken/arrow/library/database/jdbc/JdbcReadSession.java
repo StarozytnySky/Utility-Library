@@ -84,6 +84,7 @@ class JdbcReadSession implements ReadSession {
         requireLong(schema, sumField);
         FieldType groupType = schema.field(groupField).type();
         if (groupType == FieldType.JSON || groupType == FieldType.BYTES
+                || groupType == FieldType.LONG_TEXT
                 || schema.field(groupField).nullable()) {
             throw new IllegalArgumentException("Group field must be non-null scalar: " + groupField);
         }
@@ -109,6 +110,7 @@ class JdbcReadSession implements ReadSession {
                         case INTEGER -> results.getInt(1);
                         case LONG -> results.getLong(1);
                         case STRING -> results.getString(1);
+                        case LONG_TEXT -> throw new IllegalStateException("Large text cannot be grouped");
                         case BOOLEAN -> results.getBoolean(1);
                         case DOUBLE -> results.getDouble(1);
                         case DECIMAL -> results.getBigDecimal(1);

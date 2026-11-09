@@ -5,8 +5,8 @@ plugins {
 }
 
 group = "org.broken.arrow.library"
-description = "Database 2.5 — portable SQL/MongoDB database engine"
-version = "2.6.0-SNAPSHOT"
+description = "Database 2.7 — portable SQL/MongoDB database engine"
+version = "2.7.0-SNAPSHOT"
 
 // No legacy Java 8 compatibility for the rewritten Database module.
 java {

@@ -69,6 +69,9 @@ public final class CollectionDefinition {
      * @return builder for a validated table or collection definition
      */
     public static Builder named(String name, String idField, FieldType idType) {
+        if (idType == FieldType.LONG_TEXT) {
+            throw new IllegalArgumentException("Large text cannot be a primary key");
+        }
         return new Builder(Identifiers.require(name), Identifiers.require(idField), idType);
     }
 
@@ -153,6 +156,7 @@ public final class CollectionDefinition {
             case UUID -> value instanceof java.util.UUID;
             case INSTANT -> value instanceof java.time.Instant;
             case STRING -> value instanceof String || value instanceof Enum<?>;
+            case LONG_TEXT -> value instanceof String;
             case INTEGER -> value instanceof Integer;
             case LONG -> value instanceof Long;
             case BOOLEAN -> value instanceof Boolean;
@@ -244,7 +248,8 @@ public final class CollectionDefinition {
                     if (index.unique() && field.nullable()) {
                         throw new IllegalArgumentException("Portable unique indexes cannot contain nullable columns: " + column);
                     }
-                    if (field.type() == FieldType.JSON || field.type() == FieldType.BYTES) {
+                    if (field.type() == FieldType.JSON || field.type() == FieldType.BYTES
+                            || field.type() == FieldType.LONG_TEXT) {
                         throw new IllegalArgumentException("Structured and binary fields cannot be indexed portably: " + column);
                     }
                 }

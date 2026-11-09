@@ -25,6 +25,15 @@ public @interface StoredField {
     String name() default "";
 
     /**
+     * Stores a String as an unrestricted SQL TEXT/CLOB/LONGTEXT column.
+     * Useful for serialized inventories, audit payloads and other content that exceeds
+     * the bounded H2 VARCHAR mapping. Large text cannot be indexed or used as a key.
+     *
+     * @return whether the field uses the portable large-text storage type
+     */
+    boolean longText() default false;
+
+    /**
      * Whether this field may contain a null value.
      *
      * @return whether null is permitted in the field

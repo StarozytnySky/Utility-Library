@@ -83,7 +83,14 @@ public final class RecordCodecs {
                 }
                 adapters[index] = valueCodecs.adapter(component.getGenericType(),
                         metadata == null ? ValueCodec.Auto.class : metadata.codec(), 0);
+                if (metadata != null && metadata.longText()
+                        && adapters[index].fieldType() != org.broken.arrow.library.database.schema.FieldType.STRING) {
+                    throw new IllegalArgumentException("Large text requires a String field: " + component.getName());
+                }
                 if (component.getName().equals(idField)) {
+                    if (metadata != null && metadata.longText()) {
+                        throw new IllegalArgumentException("Large text cannot be a primary key");
+                    }
                     idIndex = index;
                     idColumn = columns[index];
                     if (nullable[index]) throw new IllegalArgumentException("Identifier must not be nullable");
@@ -96,7 +103,12 @@ public final class RecordCodecs {
             CollectionDefinition.Builder schema = CollectionDefinition.named(collection, idColumn,
                     adapters[idIndex].fieldType());
             for (int index = 0; index < components.length; index++) {
-                if (index != idIndex) schema.field(columns[index], adapters[index].fieldType(), nullable[index]);
+                if (index != idIndex) {
+                    StoredField metadata = components[index].getAnnotation(StoredField.class);
+                    schema.field(columns[index], metadata != null && metadata.longText()
+                            ? org.broken.arrow.library.database.schema.FieldType.LONG_TEXT
+                            : adapters[index].fieldType(), nullable[index]);
+                }
             }
             for (StoredIndex index : type.getAnnotationsByType(StoredIndex.class)) {
                 schema.index(index.name(), index.unique(), index.columns());

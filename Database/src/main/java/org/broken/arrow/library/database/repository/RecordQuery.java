@@ -80,7 +80,8 @@ public record RecordQuery(List<Condition> conditions, String orderBy, boolean de
             }
             schema.validateValue(field, condition.value());
         }
-        if (orderBy != null && schema.field(orderBy).type() == FieldType.JSON) {
+        if (orderBy != null && (schema.field(orderBy).type() == FieldType.JSON
+                || schema.field(orderBy).type() == FieldType.LONG_TEXT)) {
             throw new IllegalArgumentException("Portable JSON fields cannot be ordered: " + orderBy);
         }
     }

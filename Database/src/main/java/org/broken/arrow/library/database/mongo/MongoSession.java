@@ -113,7 +113,7 @@ final class MongoSession implements WriteSession {
             CollectionDefinition schema, RecordQuery query, String groupField, String sumField, int limit) {
         requireLong(schema, sumField);
         FieldType type = schema.field(groupField).type();
-        if (type == FieldType.JSON || type == FieldType.BYTES
+        if (type == FieldType.JSON || type == FieldType.BYTES || type == FieldType.LONG_TEXT
                 || schema.field(groupField).nullable()) {
             throw new IllegalArgumentException("Group field must be non-null scalar");
         }

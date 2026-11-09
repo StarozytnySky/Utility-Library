@@ -116,6 +116,8 @@ public final class SqlDialect {
     private String sqlType(FieldType type, boolean key, boolean indexed) {
         return switch (type) {
             case STRING -> key || indexed ? "VARCHAR(191)" : (kind == DatabaseKind.H2 ? "VARCHAR(4096)" : "TEXT");
+            case LONG_TEXT -> kind == DatabaseKind.H2 ? "CLOB" : (kind == DatabaseKind.MYSQL
+                    || kind == DatabaseKind.MARIADB ? "LONGTEXT" : "TEXT");
             case UUID -> "VARCHAR(36)";
             case LONG, INSTANT -> "BIGINT";
             case INTEGER -> "INTEGER";

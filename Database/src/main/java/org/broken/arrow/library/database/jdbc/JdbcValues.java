@@ -45,6 +45,7 @@ final class JdbcValues {
                     case LONG -> statement.setLong(index, ((Number) value).longValue());
                     case DOUBLE -> statement.setDouble(index, ((Number) value).doubleValue());
                     case STRING -> statement.setString(index, value instanceof Enum<?> item ? item.name() : (String) value);
+                    case LONG_TEXT -> statement.setString(index, (String) value);
                 }
             }
         }
@@ -60,7 +61,7 @@ final class JdbcValues {
     static Map<String, Object> read(ResultSet results, CollectionDefinition schema) throws SQLException {
         Map<String, Object> values = new LinkedHashMap<>();
         for (CollectionDefinition.Field field : schema.fields()) {
-            Object value = field.type() == FieldType.JSON
+            Object value = field.type() == FieldType.JSON || field.type() == FieldType.LONG_TEXT
                     ? results.getString(field.name()) : results.getObject(field.name());
             if (value != null) {
                 value = switch (field.type()) {
@@ -72,7 +73,7 @@ final class JdbcValues {
                     case LONG -> ((Number) value).longValue();
                     case DOUBLE -> ((Number) value).doubleValue();
                     case DECIMAL -> value instanceof BigDecimal number ? number : new BigDecimal(value.toString());
-                    case STRING -> value.toString();
+                    case STRING, LONG_TEXT -> value.toString();
                     case BYTES -> value;
                     case JSON -> JsonValues.fromJson((String) value);
                 };
@@ -92,6 +93,7 @@ final class JdbcValues {
     static JDBCType jdbcType(FieldType type) {
         return switch (type) {
             case UUID, STRING -> JDBCType.VARCHAR;
+            case LONG_TEXT -> JDBCType.LONGVARCHAR;
             case INSTANT, LONG -> JDBCType.BIGINT;
             case INTEGER -> JDBCType.INTEGER;
             case BOOLEAN -> JDBCType.BOOLEAN;

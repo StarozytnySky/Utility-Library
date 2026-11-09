@@ -49,6 +49,7 @@ final class MongoValues {
             case DOUBLE -> ((Number) value).doubleValue();
             case BOOLEAN -> (Boolean) value;
             case STRING -> value instanceof Enum<?> item ? item.name() : (String) value;
+            case LONG_TEXT -> (String) value;
         };
     }
 
@@ -72,7 +73,7 @@ final class MongoValues {
             case LONG -> ((Number) value).longValue();
             case DOUBLE -> ((Number) value).doubleValue();
             case BOOLEAN -> (Boolean) value;
-            case STRING -> value.toString();
+            case STRING, LONG_TEXT -> value.toString();
         };
     }
 
