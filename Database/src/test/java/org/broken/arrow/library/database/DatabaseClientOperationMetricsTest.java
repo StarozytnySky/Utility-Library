@@ -44,6 +44,46 @@ final class DatabaseClientOperationMetricsTest {
         }
     }
 
+    /**
+     * Simulates 20, 50 and 100 concurrent requests against the actual bounded DB2 worker.
+     * It verifies rejection, success accounting and shutdown without external SQL drivers.
+     */
+    @Test
+    void boundedWorkerHandlesSyntheticTwentyFiftyHundredRequestsWithoutUnboundedQueue() {
+        for (int producers : new int[] {20, 50, 100}) {
+            var configuration = DatabaseConfiguration.forKind(DatabaseKind.SQLITE,
+                    "jdbc:sqlite::memory:").workers(4, 8).build();
+            var release = new java.util.concurrent.CountDownLatch(1);
+            try (DatabaseClient client = DatabaseClient.fromProvider(new StubProvider(), configuration)) {
+                var requests = new java.util.ArrayList<java.util.concurrent.CompletableFuture<Integer>>();
+                for (int index = 0; index < producers; index++) {
+                    requests.add(client.readAsync(session -> {
+                        if (!release.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("Synthetic provider execution timed out");
+                        }
+                        return 1;
+                    }));
+                }
+                var pending = client.snapshot();
+                assertTrue(pending.running() <= 4);
+                assertTrue(pending.queued() <= 8);
+                assertEquals(8, pending.queueCapacity());
+                assertEquals(4, pending.maximumThreads());
+                assertEquals(producers - 12, pending.rejectedTasks());
+
+                release.countDown();
+                java.util.concurrent.CompletableFuture.allOf(requests.toArray(
+                        java.util.concurrent.CompletableFuture[]::new))
+                        .handle((unused, failure) -> null).join();
+                assertEquals(12, requests.stream().filter(request -> !request.isCompletedExceptionally()).count());
+                assertEquals(12, client.operationMetrics().reads().successfulTotal());
+                assertEquals(0, client.snapshot().queued());
+            } finally {
+                release.countDown();
+            }
+        }
+    }
+
     /** In-memory provider executes callbacks without requiring any external SQL driver. */
     private static final class StubProvider implements DatabaseProvider {
 
