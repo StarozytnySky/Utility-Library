@@ -9,6 +9,7 @@ import java.util.Objects;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.broken.arrow.library.database.diagnostics.DatabasePoolMetrics;
+import org.broken.arrow.library.database.internal.RollingOperationMonitor;
 import org.broken.arrow.library.database.api.DatabaseFailure;
 import org.broken.arrow.library.database.config.DatabaseConfiguration;
 import org.broken.arrow.library.database.config.DatabaseKind;
@@ -24,6 +25,8 @@ public final class JdbcProvider implements DatabaseProvider {
     private final DatabaseKind kind;
     private final HikariDataSource pool;
     private final SqlDialect dialect;
+    /** Independent operation histogram; the READ bucket is reserved for connection acquisition. */
+    private final RollingOperationMonitor acquisitionTimer;
 
     /**
      * Configures and opens a JDBC pool, validating the connection before returning.
@@ -34,6 +37,7 @@ public final class JdbcProvider implements DatabaseProvider {
         kind = config.kind();
         if (!kind.isSql()) throw new IllegalArgumentException("JDBC provider cannot open MongoDB");
         dialect = new SqlDialect(kind);
+        acquisitionTimer = new RollingOperationMonitor(config.operationLatencyWindowSeconds());
         HikariConfig hikari = new HikariConfig();
         hikari.setPoolName("Utility-Database-" + kind + "-" + Integer.toHexString(System.identityHashCode(this)));
         hikari.setJdbcUrl(config.address());
@@ -52,7 +56,7 @@ public final class JdbcProvider implements DatabaseProvider {
         }
         try {
             pool = new HikariDataSource(hikari);
-            try (Connection connection = pool.getConnection(); Statement check = connection.createStatement()) {
+            try (Connection connection = borrowConnection(); Statement check = connection.createStatement()) {
                 if (kind == DatabaseKind.SQLITE && config.sqliteWal()
                         && !config.address().contains(":memory:") && !config.address().contains("mode=memory")) {
                     check.execute("PRAGMA journal_mode=WAL");
@@ -81,16 +85,37 @@ public final class JdbcProvider implements DatabaseProvider {
     public java.util.Optional<DatabasePoolMetrics> poolMetrics() {
         var bean = pool.getHikariPoolMXBean();
         if (bean == null || pool.isClosed()) return java.util.Optional.empty();
+        var acquisitions = acquisitionTimer.snapshot();
         return java.util.Optional.of(new DatabasePoolMetrics(
                 bean.getActiveConnections(), bean.getIdleConnections(),
                 bean.getTotalConnections(), bean.getThreadsAwaitingConnection(),
-                pool.getMaximumPoolSize()));
+                pool.getMaximumPoolSize(), acquisitions.windowSeconds(), acquisitions.reads()));
+    }
+
+    /**
+     * Measures only the Hikari borrow boundary; this does not include SQL execution.
+     * Both successful and failed borrows are measured once using the same clock.
+     *
+     * @return borrowed connection that the caller must close
+     * @throws SQLException when Hikari could not acquire a connection
+     */
+    private Connection borrowConnection() throws SQLException {
+        long started = System.nanoTime();
+        boolean successful = false;
+        try {
+            Connection borrowed = pool.getConnection();
+            successful = true;
+            return borrowed;
+        } finally {
+            acquisitionTimer.record(RollingOperationMonitor.READ,
+                    System.nanoTime() - started, successful);
+        }
     }
 
     @Override
     public <T> T read(DatabaseWork<ReadSession, T> work) {
         Objects.requireNonNull(work, "work");
-        try (Connection connection = pool.getConnection()) {
+        try (Connection connection = borrowConnection()) {
             return work.execute(new JdbcReadSession(connection, dialect));
         } catch (DatabaseFailure failure) {
             throw failure;
@@ -103,7 +128,7 @@ public final class JdbcProvider implements DatabaseProvider {
     @Override
     public <T> T transaction(DatabaseWork<WriteSession, T> work) {
         Objects.requireNonNull(work, "work");
-        try (Connection connection = pool.getConnection()) {
+        try (Connection connection = borrowConnection()) {
             if (!connection.getAutoCommit()) {
                 throw new DatabaseFailure(DatabaseFailure.Reason.OPERATION, "Pool returned an active transaction");
             }
@@ -159,7 +184,7 @@ public final class JdbcProvider implements DatabaseProvider {
         Objects.requireNonNull(schema, "schema");
         // DDL is not transactional on all supported JDBC engines (notably MySQL).
         // Borrow exactly one connection: SQLite pools are intentionally size one.
-        try (Connection connection = pool.getConnection();
+        try (Connection connection = borrowConnection();
              Statement statement = connection.createStatement()) {
             statement.execute(dialect.createTable(schema));
             for (CollectionDefinition.Index index : schema.indexes()) {
