@@ -96,7 +96,13 @@ public final class RollingOperationMonitor {
                 snapshot(READ, second), snapshot(WRITE, second), snapshot(TRANSACTION, second));
     }
 
-    /** Copies active histogram buckets while holding only one bucket lock at a time. */
+    /**
+     * Copies active histogram buckets while holding only one bucket lock at a time.
+     *
+     * @param kind operation category to snapshot
+     * @param currentSecond current monotonic clock second
+     * @return aggregate operation counts and rolling latency percentiles
+     */
     private DatabaseOperationMetrics.Operation snapshot(int kind, long currentSecond) {
         long[] totals = new long[UPPER_MILLIS.length];
         for (Bucket bucket : buckets[kind]) {
@@ -114,7 +120,14 @@ public final class RollingOperationMonitor {
                 percentile(totals, samples, 99));
     }
 
-    /** Returns the conservative histogram bound for the requested percentile. */
+    /**
+     * Returns the conservative histogram bound for the requested percentile.
+     *
+     * @param counts number of samples in each latency histogram bucket
+     * @param total total number of samples across all buckets
+     * @param percentile requested percentile between 1 and 100
+     * @return upper bound in milliseconds, or -1 when no samples exist
+     */
     private static long percentile(long[] counts, long total, int percentile) {
         if (total == 0) return -1;
         long target = (long) Math.ceil(total * (percentile / 100.0));

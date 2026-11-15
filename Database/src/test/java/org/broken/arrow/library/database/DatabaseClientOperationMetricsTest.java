@@ -75,7 +75,14 @@ final class DatabaseClientOperationMetricsTest {
         @Override
         public void close() { }
 
-        /** Executes a callback while preserving runtime exception semantics. */
+        /**
+         * Executes a callback while preserving runtime exception semantics.
+         *
+         * @param <S> session type
+         * @param <T> callback result type
+         * @param work callback to execute with an in-memory session
+         * @return result returned by the callback
+         */
         private static <S, T> T invoke(DatabaseWork<S, T> work) {
             try {
                 return work.execute(null);
