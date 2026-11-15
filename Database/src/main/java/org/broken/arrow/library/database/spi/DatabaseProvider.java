@@ -1,6 +1,7 @@
 package org.broken.arrow.library.database.spi;
 
 import org.broken.arrow.library.database.api.DatabaseClient;
+import org.broken.arrow.library.database.diagnostics.DatabasePoolMetrics;
 import org.broken.arrow.library.database.config.DatabaseKind;
 import org.broken.arrow.library.database.schema.CollectionDefinition;
 import org.broken.arrow.library.database.session.DatabaseWork;
@@ -56,6 +57,16 @@ public interface DatabaseProvider extends AutoCloseable {
      * @param schema definition of the target table or collection
      */
     void createIfAbsent(CollectionDefinition schema);
+
+    /**
+     * Obtains passive JDBC pool occupancy when supported, without acquiring a connection.
+     * Non-pooled backends do not provide HikariCP statistics.
+     *
+     * @return pool statistics if available; never an invented zero-valued snapshot
+     */
+    default java.util.Optional<DatabasePoolMetrics> poolMetrics() {
+        return java.util.Optional.empty();
+    }
 
     /** Releases all provider-owned resources. */
     @Override

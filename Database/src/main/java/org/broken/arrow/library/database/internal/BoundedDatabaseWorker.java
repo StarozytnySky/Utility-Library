@@ -10,6 +10,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.LongAdder;
 
 import org.broken.arrow.library.database.api.DatabaseFailure;
 import org.broken.arrow.library.database.diagnostics.DatabaseWorkerMetrics;
@@ -18,6 +19,8 @@ import org.broken.arrow.library.database.diagnostics.DatabaseWorkerMetrics;
 public final class BoundedDatabaseWorker implements AutoCloseable {
     private final ThreadPoolExecutor executor;
     private final Duration shutdownTimeout;
+    private final int queueCapacity;
+    private final LongAdder rejectedSubmissions = new LongAdder();
     private volatile boolean terminated;
 
     /**
@@ -31,6 +34,7 @@ public final class BoundedDatabaseWorker implements AutoCloseable {
     public BoundedDatabaseWorker(int threads, int capacity, Duration shutdownTimeout, String threadPrefix) {
         if (threads < 1 || capacity < 1) throw new IllegalArgumentException("Invalid worker limits");
         this.shutdownTimeout = Objects.requireNonNull(shutdownTimeout, "shutdownTimeout");
+        this.queueCapacity = capacity;
         AtomicInteger index = new AtomicInteger();
         ThreadFactory factory = task -> {
             Thread thread = new Thread(task, threadPrefix + "-" + index.incrementAndGet());
@@ -53,6 +57,7 @@ public final class BoundedDatabaseWorker implements AutoCloseable {
         try {
             executor.execute(job);
         } catch (RejectedExecutionException rejected) {
+            rejectedSubmissions.increment();
             job.reject(new DatabaseFailure(DatabaseFailure.Reason.OVERLOADED,
                     "Database worker is closed or its queue is full", rejected));
         }
@@ -66,7 +71,8 @@ public final class BoundedDatabaseWorker implements AutoCloseable {
      */
     public DatabaseWorkerMetrics snapshot() {
         return new DatabaseWorkerMetrics(executor.getActiveCount(), executor.getQueue().size(),
-                executor.getPoolSize(), executor.getCompletedTaskCount());
+                executor.getPoolSize(), executor.getCompletedTaskCount(), rejectedSubmissions.sum(),
+                queueCapacity, executor.getMaximumPoolSize());
     }
 
     /** Stops new submissions and waits for writes without interrupting active COMMIT calls. */

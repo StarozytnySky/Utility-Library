@@ -9,6 +9,9 @@ import org.broken.arrow.library.database.codec.ValueCodecs;
 import org.broken.arrow.library.database.config.DatabaseConfiguration;
 import org.broken.arrow.library.database.config.DatabaseKind;
 import org.broken.arrow.library.database.diagnostics.DatabaseWorkerMetrics;
+import org.broken.arrow.library.database.diagnostics.DatabaseOperationMetrics;
+import org.broken.arrow.library.database.diagnostics.DatabasePoolMetrics;
+import org.broken.arrow.library.database.internal.RollingOperationMonitor;
 import org.broken.arrow.library.database.internal.BoundedDatabaseWorker;
 import org.broken.arrow.library.database.internal.ProviderFactory;
 
@@ -23,11 +26,13 @@ import org.broken.arrow.library.database.spi.DatabaseProvider;
 public final class DatabaseClient implements AutoCloseable {
     private final DatabaseProvider provider;
     private final BoundedDatabaseWorker worker;
+    private final RollingOperationMonitor operationMonitor;
     private final Object lifecycleLock = new Object();
     private boolean closed;
 
     private DatabaseClient(DatabaseProvider provider, DatabaseConfiguration config) {
         this.provider = provider;
+        this.operationMonitor = new RollingOperationMonitor(config.operationLatencyWindowSeconds());
         this.worker = new BoundedDatabaseWorker(config.workerCount(), config.queueCapacity(),
                 config.shutdownTimeout(), "Utility-Database-" + config.kind());
     }
@@ -124,7 +129,15 @@ public final class DatabaseClient implements AutoCloseable {
      */
     public <T> T read(DatabaseWork<ReadSession, T> work) {
         ensureOpen();
-        return provider.read(work);
+        long started = System.nanoTime();
+        boolean successful = false;
+        try {
+            T result = provider.read(work);
+            successful = true;
+            return result;
+        } finally {
+            operationMonitor.record(RollingOperationMonitor.READ, System.nanoTime() - started, successful);
+        }
     }
 
     /**
@@ -136,7 +149,15 @@ public final class DatabaseClient implements AutoCloseable {
      */
     public <T> T transaction(DatabaseWork<WriteSession, T> work) {
         ensureOpen();
-        return provider.transaction(work);
+        long started = System.nanoTime();
+        boolean successful = false;
+        try {
+            T result = provider.transaction(work);
+            successful = true;
+            return result;
+        } finally {
+            operationMonitor.record(RollingOperationMonitor.TRANSACTION, System.nanoTime() - started, successful);
+        }
     }
 
     /**
@@ -148,7 +169,15 @@ public final class DatabaseClient implements AutoCloseable {
      */
     public <T> T writeOne(DatabaseWork<WriteSession, T> work) {
         ensureOpen();
-        return provider.writeOne(work);
+        long started = System.nanoTime();
+        boolean successful = false;
+        try {
+            T result = provider.writeOne(work);
+            successful = true;
+            return result;
+        } finally {
+            operationMonitor.record(RollingOperationMonitor.WRITE, System.nanoTime() - started, successful);
+        }
     }
 
     /**
@@ -225,6 +254,22 @@ public final class DatabaseClient implements AutoCloseable {
      * @return current immutable database worker metrics
      */
     public DatabaseWorkerMetrics snapshot() { return worker.snapshot(); }
+
+    /**
+     * Captures actual provider callback durations and lifetime counters, without I/O.
+     * Asynchronous rejections are represented by the separate worker diagnostics.
+     *
+     * @return immutable rolling read/write/transaction metrics
+     */
+    public DatabaseOperationMetrics operationMetrics() { return operationMonitor.snapshot(); }
+
+    /**
+     * Reads provider-owned HikariCP pool occupancy when available, without acquiring a connection.
+     * MongoDB and custom providers may not use HikariCP.
+     *
+     * @return optional passive JDBC pool occupancy snapshot
+     */
+    public java.util.Optional<DatabasePoolMetrics> poolMetrics() { return provider.poolMetrics(); }
 
     private <T> CompletableFuture<T> schedule(java.util.concurrent.Callable<T> action) {
         synchronized (lifecycleLock) {

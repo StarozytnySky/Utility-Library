@@ -13,6 +13,7 @@ public final class DatabaseConfiguration {
     private final int poolSize;
     private final int workerCount;
     private final int queueCapacity;
+    private final int operationLatencyWindowSeconds;
     private final Duration connectionTimeout;
     private final Duration shutdownTimeout;
     private final int sqliteBusyTimeoutMillis;
@@ -28,6 +29,7 @@ public final class DatabaseConfiguration {
         poolSize = builder.poolSize == 0 ? (kind == DatabaseKind.SQLITE ? 1 : 10) : builder.poolSize;
         workerCount = builder.workerCount;
         queueCapacity = builder.queueCapacity;
+        operationLatencyWindowSeconds = builder.operationLatencyWindowSeconds;
         connectionTimeout = builder.connectionTimeout;
         shutdownTimeout = builder.shutdownTimeout;
         sqliteBusyTimeoutMillis = builder.sqliteBusyTimeoutMillis;
@@ -36,6 +38,9 @@ public final class DatabaseConfiguration {
         if (poolSize < 1 || poolSize > 128) throw new IllegalArgumentException("poolSize out of range");
         if (workerCount < 1 || workerCount > 64) throw new IllegalArgumentException("workerCount out of range");
         if (queueCapacity < 1 || queueCapacity > 1_000_000) throw new IllegalArgumentException("queueCapacity out of range");
+        if (operationLatencyWindowSeconds < 10 || operationLatencyWindowSeconds > 900) {
+            throw new IllegalArgumentException("operationLatencyWindowSeconds out of range");
+        }
         if (connectionTimeout.toMillis() < 250 || connectionTimeout.toMillis() > 300_000) {
             throw new IllegalArgumentException("connectionTimeout out of range");
         }
@@ -123,6 +128,9 @@ public final class DatabaseConfiguration {
      * @return numeric result of the requested operation
      */
     public int queueCapacity() { return queueCapacity; }
+
+    /** @return configured recent window for provider read/write/transaction latencies */
+    public int operationLatencyWindowSeconds() { return operationLatencyWindowSeconds; }
     /**
      * Returns the connection acquisition timeout.
      *
@@ -172,6 +180,7 @@ public final class DatabaseConfiguration {
         private int poolSize;
         private int workerCount = 2;
         private int queueCapacity = 2_048;
+        private int operationLatencyWindowSeconds = 60;
         private Duration connectionTimeout = Duration.ofSeconds(10);
         private Duration shutdownTimeout = Duration.ofSeconds(15);
         private int sqliteBusyTimeoutMillis = 5_000;
@@ -222,6 +231,17 @@ public final class DatabaseConfiguration {
         public Builder workers(int count, int queue) {
             workerCount = count;
             queueCapacity = queue;
+            return this;
+        }
+
+        /**
+         * Configures the rolling provider-operation latency history.
+         *
+         * @param seconds monitored horizon, between 10 and 900 seconds
+         * @return the current configuration builder
+         */
+        public Builder operationLatencyWindowSeconds(int seconds) {
+            operationLatencyWindowSeconds = seconds;
             return this;
         }
 

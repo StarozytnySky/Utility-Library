@@ -8,6 +8,7 @@ import java.util.Objects;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.broken.arrow.library.database.diagnostics.DatabasePoolMetrics;
 import org.broken.arrow.library.database.api.DatabaseFailure;
 import org.broken.arrow.library.database.config.DatabaseConfiguration;
 import org.broken.arrow.library.database.config.DatabaseKind;
@@ -74,6 +75,17 @@ public final class JdbcProvider implements DatabaseProvider {
 
     @Override
     public boolean supportsTransactions() { return true; }
+
+    /** @return a passive HikariCP MXBean snapshot without borrowing a JDBC connection */
+    @Override
+    public java.util.Optional<DatabasePoolMetrics> poolMetrics() {
+        var bean = pool.getHikariPoolMXBean();
+        if (bean == null || pool.isClosed()) return java.util.Optional.empty();
+        return java.util.Optional.of(new DatabasePoolMetrics(
+                bean.getActiveConnections(), bean.getIdleConnections(),
+                bean.getTotalConnections(), bean.getThreadsAwaitingConnection(),
+                pool.getMaximumPoolSize()));
+    }
 
     @Override
     public <T> T read(DatabaseWork<ReadSession, T> work) {
