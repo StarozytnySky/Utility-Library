@@ -76,6 +76,27 @@ public final class DatabaseClient implements AutoCloseable {
     public boolean supportsTransactions() { return provider.supportsTransactions(); }
 
     /**
+     * Borrows a JDBC connection from the currently managed SQL provider.
+     *
+     * <p>This advanced SQL-only API is for applications with existing
+     * schema-specific, multi-table JDBC transactions. Prefer the portable
+     * record sessions for new work. Each caller must close the borrowed
+     * connection, and any manual transaction must be committed or rolled back
+     * before it is closed. MongoDB intentionally does not expose JDBC.</p>
+     *
+     * @return live connection borrowed from this client's single connection pool
+     * @throws java.sql.SQLException when acquisition fails
+     * @throws UnsupportedOperationException when using a document backend
+     */
+    public java.sql.Connection borrowSqlConnection() throws java.sql.SQLException {
+        ensureOpen();
+        if (!(provider instanceof org.broken.arrow.library.database.jdbc.JdbcProvider jdbc)) {
+            throw new UnsupportedOperationException("Direct SQL requires a JDBC database provider");
+        }
+        return jdbc.borrowSqlConnection();
+    }
+
+    /**
      * Builds a high-level typed repository for the given record codec.
      *
      * @param <T> type of the record or value returned by the operation

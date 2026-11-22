@@ -11,6 +11,7 @@ public final class DatabaseConfiguration {
     private final String username;
     private final String password;
     private final int poolSize;
+    private final int minimumIdle;
     private final int workerCount;
     private final int queueCapacity;
     private final int operationLatencyWindowSeconds;
@@ -27,6 +28,7 @@ public final class DatabaseConfiguration {
         username = builder.username;
         password = builder.password;
         poolSize = builder.poolSize == 0 ? (kind == DatabaseKind.SQLITE ? 1 : 10) : builder.poolSize;
+        minimumIdle = builder.minimumIdle == -1 ? Math.min(poolSize, kind == DatabaseKind.SQLITE ? 1 : 2) : builder.minimumIdle;
         workerCount = builder.workerCount;
         queueCapacity = builder.queueCapacity;
         operationLatencyWindowSeconds = builder.operationLatencyWindowSeconds;
@@ -36,6 +38,7 @@ public final class DatabaseConfiguration {
         sqliteWal = builder.sqliteWal;
         sqliteSynchronousMode = Objects.requireNonNull(builder.sqliteSynchronousMode, "sqliteSynchronousMode");
         if (poolSize < 1 || poolSize > 128) throw new IllegalArgumentException("poolSize out of range");
+        if (minimumIdle < 0 || minimumIdle > poolSize) throw new IllegalArgumentException("minimumIdle out of range");
         if (workerCount < 1 || workerCount > 64) throw new IllegalArgumentException("workerCount out of range");
         if (queueCapacity < 1 || queueCapacity > 1_000_000) throw new IllegalArgumentException("queueCapacity out of range");
         if (operationLatencyWindowSeconds < 10 || operationLatencyWindowSeconds > 900) {
@@ -116,6 +119,9 @@ public final class DatabaseConfiguration {
      * @return current builder after configuring connection pooling
      */
     public int poolSize() { return poolSize; }
+
+    /** @return configured minimum number of idle pooled connections */
+    public int minimumIdle() { return minimumIdle; }
     /**
      * Returns the number of blocking database worker threads.
      *
@@ -178,6 +184,7 @@ public final class DatabaseConfiguration {
         private String username;
         private String password;
         private int poolSize;
+        private int minimumIdle = -1;
         private int workerCount = 2;
         private int queueCapacity = 2_048;
         private int operationLatencyWindowSeconds = 60;
@@ -220,6 +227,14 @@ public final class DatabaseConfiguration {
          * @return current builder after configuring connection pooling
          */
         public Builder poolSize(int size) { poolSize = size; return this; }
+
+        /**
+         * Configures minimum idle connections without exceeding the pool size.
+         *
+         * @param idle desired idle connection count
+         * @return this configuration builder
+         */
+        public Builder minimumIdle(int idle) { minimumIdle = idle; return this; }
 
         /**
          * Sets the number of blocking I/O workers.

@@ -43,7 +43,7 @@ public final class JdbcProvider implements DatabaseProvider {
         hikari.setPoolName("Utility-Database-" + kind + "-" + Integer.toHexString(System.identityHashCode(this)));
         hikari.setJdbcUrl(config.address());
         hikari.setMaximumPoolSize(config.poolSize());
-        hikari.setMinimumIdle(Math.min(config.poolSize(), kind == DatabaseKind.SQLITE ? 1 : 2));
+        hikari.setMinimumIdle(config.minimumIdle());
         hikari.setConnectionTimeout(config.connectionTimeout().toMillis());
         hikari.setAutoCommit(true);
         hikari.setReadOnly(false);
@@ -80,6 +80,22 @@ public final class JdbcProvider implements DatabaseProvider {
         } catch (RuntimeException failure) {
             throw new DatabaseFailure(DatabaseFailure.Reason.CONNECTION, "Could not start JDBC pool", failure);
         }
+    }
+
+    /**
+     * Borrows a physical SQL connection from the managed HikariCP pool.
+     *
+     * <p>This SQL-only escape hatch is intended for applications that have
+     * multi-statement, schema-specific JDBC repositories and cannot express
+     * them through portable record sessions yet. The caller owns the lease,
+     * must close it, and must explicitly commit or roll back transactions it
+     * starts. Never share a connection between threads or keep it past a task.</p>
+     *
+     * @return operation-scoped pooled JDBC connection
+     * @throws SQLException if the connection cannot be acquired
+     */
+    public Connection borrowSqlConnection() throws SQLException {
+        return borrowConnection();
     }
 
     @Override
