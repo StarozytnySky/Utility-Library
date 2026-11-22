@@ -1,6 +1,7 @@
 package org.broken.arrow.library.database.jdbc;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.Statement;
@@ -57,9 +58,16 @@ public final class JdbcProvider implements DatabaseProvider {
         try {
             pool = new HikariDataSource(hikari);
             try (Connection connection = borrowConnection(); Statement check = connection.createStatement()) {
-                if (kind == DatabaseKind.SQLITE && config.sqliteWal()
+                if (kind == DatabaseKind.SQLITE
                         && !config.address().contains(":memory:") && !config.address().contains("mode=memory")) {
-                    check.execute("PRAGMA journal_mode=WAL");
+                    // Journal mode persists in the database file. Disabling WAL must
+                    // explicitly switch existing databases back to rollback journaling.
+                    String expectedMode = config.sqliteWal() ? "WAL" : "DELETE";
+                    try (ResultSet mode = check.executeQuery("PRAGMA journal_mode=" + expectedMode)) {
+                        if (!mode.next() || !expectedMode.equalsIgnoreCase(mode.getString(1))) {
+                            throw new SQLException("SQLite could not activate journal mode " + expectedMode);
+                        }
+                    }
                 } else {
                     check.execute("SELECT 1");
                 }
@@ -226,7 +234,7 @@ public final class JdbcProvider implements DatabaseProvider {
      * @return true if the requested condition is satisfied
      */
     private static boolean catalogContainsIndex(java.sql.DatabaseMetaData metadata, String catalog,
-            String table, String index) throws SQLException {
+                                                String table, String index) throws SQLException {
         try (java.sql.ResultSet result = metadata.getIndexInfo(catalog, null, table, false, false)) {
             while (result.next()) {
                 if (index.equalsIgnoreCase(result.getString("INDEX_NAME"))) return true;
