@@ -132,6 +132,9 @@ public final class MongoProvider implements DatabaseProvider {
     @Override
     public void createIfAbsent(CollectionDefinition schema) {
         Objects.requireNonNull(schema, "schema");
+        if (schema.idFields().size() != 1) {
+            throw new UnsupportedOperationException("Composite keys are not supported by the MongoDB provider");
+        }
         try {
             boolean exists = false;
             for (String name : database.listCollectionNames()) {

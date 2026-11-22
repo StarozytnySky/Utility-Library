@@ -39,7 +39,8 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
             // Target only the primary key: a different unique constraint must still fail loudly.
             List<String> fields = List.copyOf(record.keySet());
             String sql = dialect.insert(schema.name(), fields)
-                    + " ON CONFLICT (" + dialect.quote(schema.idField()) + ") DO NOTHING";
+                    + " ON CONFLICT (" + schema.idFields().stream().map(dialect::quote)
+                    .collect(java.util.stream.Collectors.joining(", ")) + ") DO NOTHING";
             return execute(sql, fields.stream().map(record::get).toArray(), types(schema, fields)) == 1;
         }
         // The savepoint is required by PostgreSQL: after a unique violation the
@@ -64,7 +65,7 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
             // Only a collision of the actual primary key means the record already exists.
             // Unique constraints on other columns must remain visible to the caller.
             if (failure.reason() == DatabaseFailure.Reason.CONFLICT
-                    && exists(schema, record.get(schema.idField()))) {
+                    && exists(schema, schema.idFrom(record))) {
                 return false;
             }
             throw failure;
@@ -123,7 +124,7 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
                 || kind == org.broken.arrow.library.database.config.DatabaseKind.MARIADB) {
             // Upsert is parameterized even in the MySQL/MariaDB update clause.
             for (String field : fields) {
-                if (!field.equals(schema.idField())) {
+                if (!schema.isIdField(field)) {
                     values.add(record.get(field));
                     types.add(schema.field(field).type());
                 }
@@ -135,75 +136,129 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
     @Override
     public boolean update(CollectionDefinition schema, Map<String, Object> record) {
         schema.validateValues(record, true);
-        List<String> fields = record.keySet().stream().filter(field -> !field.equals(schema.idField())).toList();
-        if (fields.isEmpty()) return exists(schema, record.get(schema.idField()));
+        List<String> fields = record.keySet().stream().filter(field -> !schema.isIdField(field)).toList();
+        if (fields.isEmpty()) return exists(schema, schema.idFrom(record));
         StringBuilder sql = new StringBuilder("UPDATE ").append(dialect.quote(schema.name())).append(" SET ");
         for (int i = 0; i < fields.size(); i++) {
             if (i != 0) sql.append(", ");
             sql.append(dialect.quote(fields.get(i))).append(" = ?");
         }
-        sql.append(" WHERE ").append(dialect.quote(schema.idField())).append(" = ?");
+        sql.append(" WHERE ").append(schema.idFields().stream()
+                .map(field -> dialect.quote(field) + " = ?")
+                .collect(java.util.stream.Collectors.joining(" AND ")));
         List<Object> values = new ArrayList<>();
         List<FieldType> types = new ArrayList<>();
         for (String field : fields) {
             values.add(record.get(field));
             types.add(schema.field(field).type());
         }
-        values.add(record.get(schema.idField()));
-        types.add(schema.field(schema.idField()).type());
+        for (String key : schema.idFields()) {
+            values.add(record.get(key));
+            types.add(schema.field(key).type());
+        }
         int changed = execute(sql.toString(), values.toArray(), types.toArray(FieldType[]::new));
         // MySQL may report zero affected rows when the update reassigns equal values.
-        return changed > 0 || exists(schema, record.get(schema.idField()));
+        return changed > 0 || exists(schema, schema.idFrom(record));
     }
 
     @Override
     public boolean deleteById(CollectionDefinition schema, Object id) {
-        return execute("DELETE FROM " + dialect.quote(schema.name()) + " WHERE "
-                        + dialect.quote(schema.idField()) + " = ?", new Object[]{id},
-                new FieldType[]{schema.field(schema.idField()).type()}) > 0;
+        SqlQuery.Predicate predicate = SqlQuery.keyPredicate(dialect, schema, id);
+        return execute("DELETE FROM " + dialect.quote(schema.name()) + predicate.sql(),
+                predicate.parameters(), predicate.types()) > 0;
     }
 
     @Override
     public boolean increment(CollectionDefinition schema, Object id, String field, long amount) {
         requireInteger(schema, field);
+        SqlQuery.Predicate key = SqlQuery.keyPredicate(dialect, schema, id);
         String column = dialect.quote(field);
         String sql = "UPDATE " + dialect.quote(schema.name()) + " SET " + column
-                + " = " + column + " + ? WHERE " + dialect.quote(schema.idField())
-                + " = ? AND " + column + " IS NOT NULL";
-        List<Object> parameters = new ArrayList<>(List.of(amount, id));
-        List<FieldType> parameterTypes = new ArrayList<>(List.of(FieldType.LONG,
-                schema.field(schema.idField()).type()));
+                + " = " + column + " + ?" + key.sql() + " AND " + column + " IS NOT NULL";
+        List<Object> parameters = new ArrayList<>();
+        List<FieldType> types = new ArrayList<>();
+        parameters.add(amount);
+        types.add(FieldType.LONG);
+        parameters.addAll(java.util.Arrays.asList(key.parameters()));
+        types.addAll(java.util.Arrays.asList(key.types()));
         if (amount > 0) {
             sql += " AND " + column + " <= ?";
             parameters.add(Long.MAX_VALUE - amount);
-            parameterTypes.add(FieldType.LONG);
+            types.add(FieldType.LONG);
         } else if (amount < 0) {
             sql += " AND " + column + " >= ?";
             parameters.add(Long.MIN_VALUE - amount);
-            parameterTypes.add(FieldType.LONG);
+            types.add(FieldType.LONG);
         }
-        return execute(sql, parameters.toArray(), parameterTypes.toArray(FieldType[]::new)) > 0;
+        return execute(sql, parameters.toArray(), types.toArray(FieldType[]::new)) > 0;
+    }
+
+    /** Applies one bounds-checked numeric mutation with the key and range in SQL WHERE. */
+    @Override
+    public boolean incrementBounded(CollectionDefinition schema, Object id, String field,
+                                    long delta, long minimum, long maximum) {
+        requireInteger(schema, field);
+        if (minimum > maximum || delta == Long.MIN_VALUE || delta == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("Invalid bounded increment range");
+        }
+        if (minimum > Long.MAX_VALUE + Math.min(0, delta)
+                || maximum < Long.MIN_VALUE + Math.max(0, delta)) {
+            throw new IllegalArgumentException("Bounded increment would overflow");
+        }
+        long minBefore = Math.max(minimum, Math.subtractExact(minimum, delta));
+        long maxBefore = Math.min(maximum, Math.subtractExact(maximum, delta));
+        if (minBefore > maxBefore) return false;
+        SqlQuery.Predicate key = SqlQuery.keyPredicate(dialect, schema, id);
+        List<Object> args = new ArrayList<>();
+        List<FieldType> types = new ArrayList<>();
+        args.add(delta);
+        types.add(FieldType.LONG);
+        args.addAll(java.util.Arrays.asList(key.parameters()));
+        types.addAll(java.util.Arrays.asList(key.types()));
+        args.add(minBefore);
+        args.add(maxBefore);
+        types.add(FieldType.LONG);
+        types.add(FieldType.LONG);
+        String column = dialect.quote(field);
+        String sql = "UPDATE " + dialect.quote(schema.name()) + " SET " + column + " = " + column
+                + " + ?" + key.sql() + " AND " + column + " >= ? AND " + column + " <= ?";
+        return execute(sql, args.toArray(), types.toArray(FieldType[]::new)) == 1;
     }
 
     @Override
     public boolean decrementIfEnough(CollectionDefinition schema, Object id, String field, long amount) {
         requireInteger(schema, field);
         if (amount < 0) throw new IllegalArgumentException("amount must not be negative");
-        String sql = "UPDATE " + dialect.quote(schema.name()) + " SET " + dialect.quote(field)
-                + " = " + dialect.quote(field) + " - ? WHERE " + dialect.quote(schema.idField())
-                + " = ? AND " + dialect.quote(field) + " >= ?";
-        return execute(sql, new Object[]{amount, id, amount},
-                new FieldType[]{FieldType.LONG, schema.field(schema.idField()).type(), FieldType.LONG}) > 0;
+        SqlQuery.Predicate key = SqlQuery.keyPredicate(dialect, schema, id);
+        List<Object> parameters = new ArrayList<>();
+        parameters.add(amount);
+        parameters.addAll(java.util.Arrays.asList(key.parameters()));
+        parameters.add(amount);
+        List<FieldType> types = new ArrayList<>();
+        types.add(FieldType.LONG);
+        types.addAll(java.util.Arrays.asList(key.types()));
+        types.add(FieldType.LONG);
+        String column = dialect.quote(field);
+        return execute("UPDATE " + dialect.quote(schema.name()) + " SET " + column
+                + " = " + column + " - ?" + key.sql() + " AND " + column + " >= ?",
+                parameters.toArray(), types.toArray(FieldType[]::new)) > 0;
     }
 
     @Override
     public boolean compareAndSet(CollectionDefinition schema, Object id, String field, long expected, long updated) {
         requireInteger(schema, field);
-        String sql = "UPDATE " + dialect.quote(schema.name()) + " SET " + dialect.quote(field)
-                + " = ? WHERE " + dialect.quote(schema.idField()) + " = ? AND " + dialect.quote(field)
-                + " = ?";
-        return execute(sql, new Object[]{updated, id, expected},
-                new FieldType[]{FieldType.LONG, schema.field(schema.idField()).type(), FieldType.LONG}) > 0;
+        SqlQuery.Predicate key = SqlQuery.keyPredicate(dialect, schema, id);
+        List<Object> parameters = new ArrayList<>();
+        parameters.add(updated);
+        parameters.addAll(java.util.Arrays.asList(key.parameters()));
+        parameters.add(expected);
+        List<FieldType> types = new ArrayList<>();
+        types.add(FieldType.LONG);
+        types.addAll(java.util.Arrays.asList(key.types()));
+        types.add(FieldType.LONG);
+        return execute("UPDATE " + dialect.quote(schema.name()) + " SET " + dialect.quote(field)
+                + " = ?" + key.sql() + " AND " + dialect.quote(field) + " = ?",
+                parameters.toArray(), types.toArray(FieldType[]::new)) > 0;
     }
 
     /** Executes a fully bound conditional update, preserving the caller's transaction. */
@@ -218,7 +273,7 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
         SqlQuery.Predicate predicate = SqlQuery.predicate(dialect, schema, query);
         List<String> columns = List.copyOf(changes.keySet());
         for (String name : columns) {
-            if (name.equals(schema.idField())) throw new IllegalArgumentException("Cannot update identifier");
+            if (schema.isIdField(name)) throw new IllegalArgumentException("Cannot update identifier");
             schema.validateValue(schema.field(name), changes.get(name));
         }
         StringBuilder sql = new StringBuilder("UPDATE ").append(dialect.quote(schema.name()))
@@ -265,7 +320,7 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
 
     private void requireInteger(CollectionDefinition schema, String field) {
         FieldType type = schema.field(field).type();
-        if (field.equals(schema.idField()) || (type != FieldType.LONG)) {
+        if (schema.isIdField(field) || (type != FieldType.LONG && type != FieldType.INTEGER)) {
             throw new IllegalArgumentException("Atomic integer operations require a mutable integer field");
         }
     }

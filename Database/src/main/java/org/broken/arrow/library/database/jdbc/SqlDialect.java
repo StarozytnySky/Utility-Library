@@ -11,6 +11,7 @@ import org.broken.arrow.library.database.schema.Identifiers;
 /** Centralizes SQL grammar differences; portable code does not inspect the database type. */
 public final class SqlDialect {
     private final DatabaseKind kind;
+    private final boolean postgresUnquotedIdentifiers;
 
     /**
      * Binds the dialect to a supported JDBC database.
@@ -18,8 +19,19 @@ public final class SqlDialect {
      * @param kind requested database engine
      */
     public SqlDialect(DatabaseKind kind) {
+        this(kind, false);
+    }
+
+    /**
+     * Creates a SQL dialect with optional PostgreSQL lowercase identifier compatibility.
+     *
+     * @param kind selected SQL database engine
+     * @param postgresUnquotedIdentifiers true to fold PostgreSQL identifiers to lowercase
+     */
+    public SqlDialect(DatabaseKind kind, boolean postgresUnquotedIdentifiers) {
         if (!kind.isSql()) throw new IllegalArgumentException("MongoDB is not a SQL dialect");
         this.kind = kind;
+        this.postgresUnquotedIdentifiers = postgresUnquotedIdentifiers;
     }
 
     /**
@@ -30,7 +42,9 @@ public final class SqlDialect {
      */
     public String quote(String identifier) {
         char character = kind == DatabaseKind.MYSQL || kind == DatabaseKind.MARIADB ? '`' : '"';
-        return character + Identifiers.require(identifier) + character;
+        String safe = Identifiers.require(identifier);
+        return character + (kind == DatabaseKind.POSTGRESQL && postgresUnquotedIdentifiers
+                ? safe.toLowerCase(java.util.Locale.ROOT) : safe) + character;
     }
 
     /**
@@ -59,11 +73,11 @@ public final class SqlDialect {
             // H2 uses MERGE, not PostgreSQL's INSERT ... ON CONFLICT syntax.
             return "MERGE INTO " + quote(schema.name()) + " ("
                     + fields.stream().map(this::quote).collect(Collectors.joining(", ")) + ") KEY ("
-                    + quote(schema.idField()) + ") VALUES ("
+                    + schema.idFields().stream().map(this::quote).collect(Collectors.joining(", ")) + ") VALUES ("
                     + fields.stream().map(unused -> "?").collect(Collectors.joining(", ")) + ")";
         }
         String sql = insert(schema.name(), fields);
-        List<String> mutable = fields.stream().filter(f -> !f.equals(schema.idField())).toList();
+        List<String> mutable = fields.stream().filter(f -> !schema.isIdField(f)).toList();
         if (kind == DatabaseKind.MYSQL || kind == DatabaseKind.MARIADB) {
             if (mutable.isEmpty()) {
                 return sql + " ON DUPLICATE KEY UPDATE " + quote(schema.idField())
@@ -74,7 +88,7 @@ public final class SqlDialect {
                     .map(field -> quote(field) + " = ?")
                     .collect(Collectors.joining(", "));
         }
-        String conflict = " ON CONFLICT (" + quote(schema.idField()) + ") ";
+        String conflict = " ON CONFLICT (" + schema.idFields().stream().map(this::quote).collect(Collectors.joining(", ")) + ") ";
         if (mutable.isEmpty()) return sql + conflict + "DO NOTHING";
         return sql + conflict + "DO UPDATE SET " + mutable.stream()
                 .map(field -> quote(field) + " = excluded." + quote(field))
@@ -90,13 +104,14 @@ public final class SqlDialect {
     public String createTable(CollectionDefinition schema) {
         return "CREATE TABLE IF NOT EXISTS " + quote(schema.name()) + " ("
                 + schema.fields().stream().map(field -> {
-                    String column = quote(field.name()) + " "
-                            + sqlType(field.type(), field.name().equals(schema.idField()),
-                                    schema.indexes().stream().anyMatch(index -> index.columns().contains(field.name())));
-                    if (!field.nullable() || field.name().equals(schema.idField())) column += " NOT NULL";
-                    if (field.name().equals(schema.idField())) column += " PRIMARY KEY";
-                    return column;
-                }).collect(Collectors.joining(", ")) + ")";
+            String column = quote(field.name()) + " "
+                    + sqlType(field.type(), schema.isIdField(field.name()),
+                    schema.indexes().stream().anyMatch(index -> index.columns().contains(field.name())));
+            if (!field.nullable() || schema.isIdField(field.name())) column += " NOT NULL";
+
+            return column;
+        }).collect(Collectors.joining(", ")) + ", PRIMARY KEY ("
+                + schema.idFields().stream().map(this::quote).collect(Collectors.joining(", ")) + "))";
     }
 
     /**

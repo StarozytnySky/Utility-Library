@@ -31,10 +31,11 @@ final class SqlQuery {
         List<FieldType> types = new ArrayList<>(java.util.Arrays.asList(predicate.types()));
         if (!count) {
             sql.append(" ORDER BY ").append(dialect.quote(query.orderBy() == null
-                    ? schema.idField() : query.orderBy()))
+                            ? schema.idField() : query.orderBy()))
                     .append(query.descending() ? " DESC" : " ASC");
-            if (query.orderBy() != null && !query.orderBy().equals(schema.idField())) {
-                sql.append(", ").append(dialect.quote(schema.idField()))
+            for (String key : schema.idFields()) {
+                if (key.equals(query.orderBy() == null ? schema.idField() : query.orderBy())) continue;
+                sql.append(", ").append(dialect.quote(key))
                         .append(query.descending() ? " DESC" : " ASC");
             }
             sql.append(" LIMIT ? OFFSET ?");
@@ -44,6 +45,24 @@ final class SqlQuery {
             types.add(FieldType.INTEGER);
         }
         return new Compiled(sql.toString(), parameters.toArray(), types.toArray(FieldType[]::new));
+    }
+
+    /**
+     * Builds a primary-key predicate with one bound parameter for each key component.
+     *
+     * @param dialect SQL dialect responsible for quoting column names
+     * @param schema collection definition containing ordered primary-key fields
+     * @param id scalar or composite identifier to bind
+     * @return parameterized predicate and its ordered argument types
+     */
+    static Predicate keyPredicate(SqlDialect dialect, CollectionDefinition schema, Object id) {
+        var values = schema.keyValues(id);
+        String where = " WHERE " + schema.idFields().stream()
+                .map(field -> dialect.quote(field) + " = ?")
+                .collect(java.util.stream.Collectors.joining(" AND "));
+        var types = schema.idFields().stream().map(field -> schema.field(field).type())
+                .toArray(FieldType[]::new);
+        return new Predicate(where, values.toArray(), types);
     }
 
     /** An already validated, prepared WHERE clause reusable in SELECT and UPDATE statements. */

@@ -487,7 +487,7 @@ public final class RecordRepository<T, ID> {
     private void checkModel(T model, Map<String, Object> values) {
         Objects.requireNonNull(values, "encoded values");
         schema().validateValues(values, true);
-        if (!Objects.equals(codec.id(model), values.get(schema().idField()))) {
+        if (!Objects.equals(codec.id(model), schema().idFrom(values))) {
             throw new IllegalArgumentException("Record identifier does not match codec identifier");
         }
     }

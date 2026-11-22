@@ -29,4 +29,11 @@ public @interface StoredCollection {
      * @return string representation of the requested value
      */
     String idField() default "id";
+
+    /**
+     * Declares record components forming a composite primary key in binding order.
+     *
+     * @return ordered record component names, or an empty array for a scalar key
+     */
+    String[] idFields() default {};
 }

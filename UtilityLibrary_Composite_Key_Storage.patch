@@ -1,0 +1,921 @@
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/api/DatabaseManager.java b/Database/src/main/java/org/broken/arrow/library/database/api/DatabaseManager.java
+index 7ae03f2..cce0140 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/api/DatabaseManager.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/api/DatabaseManager.java
+@@ -181,7 +181,15 @@ public final class DatabaseManager implements AutoCloseable {
+         if (metadata == null) {
+             throw new IllegalArgumentException("Missing @StoredCollection on database record: " + type.getName());
+         }
+-        return register(type, metadata.value(), metadata.idField());
++        if (metadata.idFields().length == 0) {
++            return register(type, metadata.value(), metadata.idField());
++        }
++        // The annotation declares a composite ID; preserve the public generic
++        // registration API while returning the exact CompositeKey repository.
++        @SuppressWarnings("unchecked")
++        RecordRepository<T, ID> repository = (RecordRepository<T, ID>)
++                registerComposite(type, metadata.value(), metadata.idFields());
++        return repository;
+     }
+ 
+     /**
+@@ -199,6 +207,12 @@ public final class DatabaseManager implements AutoCloseable {
+         return register(type, collection, idField, ValueCodecs.defaults());
+     }
+ 
++    /** Registers a typed record using the ordered composite key fields. */
++    public <T extends Record> RecordRepository<T, org.broken.arrow.library.database.schema.CompositeKey>
++    registerComposite(Class<T> type, String collection, String... idFields) {
++        return register(type, RecordCodecs.ofComposite(type, collection, idFields));
++    }
++
+     /**
+      * Registers a Java record using the caller's custom value codecs.
+      *
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/codec/RecordCodecs.java b/Database/src/main/java/org/broken/arrow/library/database/codec/RecordCodecs.java
+index 736b20c..26a28e3 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/codec/RecordCodecs.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/codec/RecordCodecs.java
+@@ -41,6 +41,15 @@ public final class RecordCodecs {
+         return of(type, collection, idField, ValueCodecs.defaults());
+     }
+ 
++    /** Creates a typed codec with a multi-component primary key and unchanged columns. */
++    public static <T extends Record> RecordCodec<T, org.broken.arrow.library.database.schema.CompositeKey>
++    ofComposite(Class<T> type, String collection, String... idFields) {
++        if (idFields == null || idFields.length < 2) {
++            throw new IllegalArgumentException("A composite key requires at least two components");
++        }
++        return build(type, collection, idFields, ValueCodecs.defaults());
++    }
++
+     /**
+      * Derives a record codec with immutable, application-specific type mappings.
+      *
+@@ -54,15 +63,22 @@ public final class RecordCodecs {
+      */
+     public static <T extends Record, ID> RecordCodec<T, ID> of(
+             Class<T> type, String collection, String idField, ValueCodecs valueCodecs) {
++        return build(type, collection, new String[]{idField}, valueCodecs);
++    }
++
++    private static <T extends Record, ID> RecordCodec<T, ID> build(
++            Class<T> type, String collection, String[] idFields, ValueCodecs valueCodecs) {
+         Objects.requireNonNull(type, "type");
+         Objects.requireNonNull(valueCodecs, "valueCodecs");
++        if (idFields.length == 0 || java.util.Set.of(idFields).size() != idFields.length) {
++            throw new IllegalArgumentException("Invalid identifier components");
++        }
+         Identifiers.require(collection);
+-        Identifiers.require(idField);
++        for (String idField : idFields) Identifiers.require(idField);
+         if (!type.isRecord()) throw new IllegalArgumentException("Only Java records can be auto-mapped");
+         RecordComponent[] components = type.getRecordComponents();
+         if (components.length == 0) throw new IllegalArgumentException("Record cannot be empty");
+-        int idIndex = -1;
+-        String idColumn = null;
++        java.util.List<Integer> idIndexes = new java.util.ArrayList<>();
+         Class<?>[] parameterTypes = new Class<?>[components.length];
+         MethodHandle[] accessors = new MethodHandle[components.length];
+         ValueCodecs.Adapter[] adapters = new ValueCodecs.Adapter[components.length];
+@@ -87,23 +103,35 @@ public final class RecordCodecs {
+                         && adapters[index].fieldType() != org.broken.arrow.library.database.schema.FieldType.STRING) {
+                     throw new IllegalArgumentException("Large text requires a String field: " + component.getName());
+                 }
+-                if (component.getName().equals(idField)) {
++                if (java.util.Arrays.asList(idFields).contains(component.getName())) {
+                     if (metadata != null && metadata.longText()) {
+                         throw new IllegalArgumentException("Large text cannot be a primary key");
+                     }
+-                    idIndex = index;
+-                    idColumn = columns[index];
++                    idIndexes.add(index);
+                     if (nullable[index]) throw new IllegalArgumentException("Identifier must not be nullable");
+                     if (adapters[index].fieldType() == FieldType.JSON) {
+                         throw new IllegalArgumentException("Structured values cannot be primary keys");
+                     }
+                 }
+             }
+-            if (idIndex == -1) throw new IllegalArgumentException("Unknown identifier component: " + idField);
+-            CollectionDefinition.Builder schema = CollectionDefinition.named(collection, idColumn,
+-                    adapters[idIndex].fieldType());
++            if (idIndexes.size() != idFields.length) throw new IllegalArgumentException("Missing identifier components");
++            // Preserve the caller-declared key order instead of record component order.
++            java.util.LinkedHashMap<String, FieldType> ordered = new java.util.LinkedHashMap<>();
++            java.util.List<Integer> orderedIndexes = new java.util.ArrayList<>();
++            for (String key : idFields) {
++                for (int i = 0; i < components.length; i++) {
++                    if (components[i].getName().equals(key)) {
++                        ordered.put(columns[i], adapters[i].fieldType());
++                        orderedIndexes.add(i);
++                    }
++                }
++            }
++            CollectionDefinition.Builder schema = idFields.length == 1
++                    ? CollectionDefinition.named(collection, ordered.keySet().iterator().next(),
++                        ordered.values().iterator().next())
++                    : CollectionDefinition.namedComposite(collection, ordered);
+             for (int index = 0; index < components.length; index++) {
+-                if (index != idIndex) {
++                if (!orderedIndexes.contains(index)) {
+                     StoredField metadata = components[index].getAnnotation(StoredField.class);
+                     schema.field(columns[index], metadata != null && metadata.longText()
+                             ? org.broken.arrow.library.database.schema.FieldType.LONG_TEXT
+@@ -117,7 +145,7 @@ public final class RecordCodecs {
+             MethodHandle creator = lookup.unreflectConstructor(constructor)
+                     .asSpreader(Object[].class, components.length);
+             return new GeneratedCodec<>(schema.build(), columns, nullable, adapters,
+-                    accessors, creator, idIndex);
++                    accessors, creator, orderedIndexes.stream().mapToInt(Integer::intValue).toArray());
+         } catch (ReflectiveOperationException failure) {
+             throw new IllegalArgumentException("Record must expose an accessible canonical constructor: "
+                     + type.getName(), failure);
+@@ -127,7 +155,7 @@ public final class RecordCodecs {
+     private record GeneratedCodec<T extends Record, ID>(
+             CollectionDefinition schema, String[] fields, boolean[] nullable,
+             ValueCodecs.Adapter[] adapters, MethodHandle[] getters,
+-            MethodHandle constructor, int idIndex) implements RecordCodec<T, ID> {
++            MethodHandle constructor, int[] idIndexes) implements RecordCodec<T, ID> {
+ 
+         /** Returns immutable schema metadata. */
+         @Override public CollectionDefinition schema() { return schema; }
+@@ -137,7 +165,10 @@ public final class RecordCodecs {
+         public ID id(T model) {
+             Objects.requireNonNull(model, "model");
+             try {
+-                return (ID) getters[idIndex].invoke(model);
++                if (idIndexes.length == 1) return (ID) getters[idIndexes[0]].invoke(model);
++                Object[] values = new Object[idIndexes.length];
++                for (int i = 0; i < idIndexes.length; i++) values[i] = getters[idIndexes[i]].invoke(model);
++                return (ID) org.broken.arrow.library.database.schema.CompositeKey.of(values);
+             } catch (Throwable failure) {
+                 throw new IllegalStateException("Cannot read database identifier", failure);
+             }
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/config/DatabaseConfiguration.java b/Database/src/main/java/org/broken/arrow/library/database/config/DatabaseConfiguration.java
+index 2882d53..779342d 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/config/DatabaseConfiguration.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/config/DatabaseConfiguration.java
+@@ -19,6 +19,7 @@ public final class DatabaseConfiguration {
+     private final Duration shutdownTimeout;
+     private final int sqliteBusyTimeoutMillis;
+     private final boolean sqliteWal;
++    private final boolean postgresUnquotedIdentifiers;
+     private final SqliteSynchronousMode sqliteSynchronousMode;
+ 
+     private DatabaseConfiguration(Builder builder) {
+@@ -36,6 +37,7 @@ public final class DatabaseConfiguration {
+         shutdownTimeout = builder.shutdownTimeout;
+         sqliteBusyTimeoutMillis = builder.sqliteBusyTimeoutMillis;
+         sqliteWal = builder.sqliteWal;
++        postgresUnquotedIdentifiers = builder.postgresUnquotedIdentifiers;
+         sqliteSynchronousMode = Objects.requireNonNull(builder.sqliteSynchronousMode, "sqliteSynchronousMode");
+         if (poolSize < 1 || poolSize > 128) throw new IllegalArgumentException("poolSize out of range");
+         if (minimumIdle < 0 || minimumIdle > poolSize) throw new IllegalArgumentException("minimumIdle out of range");
+@@ -162,6 +164,9 @@ public final class DatabaseConfiguration {
+      */
+     public boolean sqliteWal() { return sqliteWal; }
+ 
++    /** Whether PostgreSQL should address existing unquoted lowercase identifiers. */
++    public boolean postgresUnquotedIdentifiers() { return postgresUnquotedIdentifiers; }
++
+     /**
+      * Returns the allowlisted SQLite synchronous durability policy.
+      *
+@@ -192,6 +197,7 @@ public final class DatabaseConfiguration {
+         private Duration shutdownTimeout = Duration.ofSeconds(15);
+         private int sqliteBusyTimeoutMillis = 5_000;
+         private boolean sqliteWal = true;
++        private boolean postgresUnquotedIdentifiers;
+         private SqliteSynchronousMode sqliteSynchronousMode = SqliteSynchronousMode.FULL;
+ 
+         private Builder(DatabaseKind kind, String address) {
+@@ -282,6 +288,12 @@ public final class DatabaseConfiguration {
+             return this;
+         }
+ 
++        /** Uses PostgreSQL's lowercase identifier folding for pre-existing unquoted schemas. */
++        public Builder postgresUnquotedIdentifiers(boolean enabled) {
++            postgresUnquotedIdentifiers = enabled;
++            return this;
++        }
++
+         /**
+          * Configures SQLite busy handling and persistent WAL mode.
+          *
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcProvider.java b/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcProvider.java
+index c31fea0..093e9af 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcProvider.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcProvider.java
+@@ -36,7 +36,7 @@ public final class JdbcProvider implements DatabaseProvider {
+     public JdbcProvider(DatabaseConfiguration config) {
+         kind = config.kind();
+         if (!kind.isSql()) throw new IllegalArgumentException("JDBC provider cannot open MongoDB");
+-        dialect = new SqlDialect(kind);
++        dialect = new SqlDialect(kind, config.postgresUnquotedIdentifiers());
+         acquisitionTimer = new RollingOperationMonitor(config.operationLatencyWindowSeconds());
+         HikariConfig hikari = new HikariConfig();
+         hikari.setPoolName("Utility-Database-" + kind + "-" + Integer.toHexString(System.identityHashCode(this)));
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcReadSession.java b/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcReadSession.java
+index 394f4ad..d852bbf 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcReadSession.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcReadSession.java
+@@ -28,11 +28,10 @@ class JdbcReadSession implements ReadSession {
+ 
+     @Override
+     public Optional<Map<String, Object>> findById(CollectionDefinition schema, Object id) {
+-        String sql = "SELECT * FROM " + dialect.quote(schema.name()) + " WHERE "
+-                + dialect.quote(schema.idField()) + " = ?";
++        SqlQuery.Predicate predicate = SqlQuery.keyPredicate(dialect, schema, id);
++        String sql = "SELECT * FROM " + dialect.quote(schema.name()) + predicate.sql();
+         try (PreparedStatement statement = connection.prepareStatement(sql)) {
+-            JdbcValues.bind(statement, new Object[]{id},
+-                    new org.broken.arrow.library.database.schema.FieldType[]{schema.field(schema.idField()).type()});
++            JdbcValues.bind(statement, predicate.parameters(), predicate.types());
+             statement.setMaxRows(1);
+             try (ResultSet results = statement.executeQuery()) {
+                 return results.next() ? Optional.of(JdbcValues.read(results, schema)) : Optional.empty();
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcWriteSession.java b/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcWriteSession.java
+index fcfe14b..8392590 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcWriteSession.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/jdbc/JdbcWriteSession.java
+@@ -39,7 +39,8 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
+             // Target only the primary key: a different unique constraint must still fail loudly.
+             List<String> fields = List.copyOf(record.keySet());
+             String sql = dialect.insert(schema.name(), fields)
+-                    + " ON CONFLICT (" + dialect.quote(schema.idField()) + ") DO NOTHING";
++                    + " ON CONFLICT (" + schema.idFields().stream().map(dialect::quote)
++                    .collect(java.util.stream.Collectors.joining(", ")) + ") DO NOTHING";
+             return execute(sql, fields.stream().map(record::get).toArray(), types(schema, fields)) == 1;
+         }
+         // The savepoint is required by PostgreSQL: after a unique violation the
+@@ -64,7 +65,7 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
+             // Only a collision of the actual primary key means the record already exists.
+             // Unique constraints on other columns must remain visible to the caller.
+             if (failure.reason() == DatabaseFailure.Reason.CONFLICT
+-                    && exists(schema, record.get(schema.idField()))) {
++                    && exists(schema, schema.idFrom(record))) {
+                 return false;
+             }
+             throw failure;
+@@ -123,7 +124,7 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
+                 || kind == org.broken.arrow.library.database.config.DatabaseKind.MARIADB) {
+             // Upsert is parameterized even in the MySQL/MariaDB update clause.
+             for (String field : fields) {
+-                if (!field.equals(schema.idField())) {
++                if (!schema.isIdField(field)) {
+                     values.add(record.get(field));
+                     types.add(schema.field(field).type());
+                 }
+@@ -135,75 +136,129 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
+     @Override
+     public boolean update(CollectionDefinition schema, Map<String, Object> record) {
+         schema.validateValues(record, true);
+-        List<String> fields = record.keySet().stream().filter(field -> !field.equals(schema.idField())).toList();
+-        if (fields.isEmpty()) return exists(schema, record.get(schema.idField()));
++        List<String> fields = record.keySet().stream().filter(field -> !schema.isIdField(field)).toList();
++        if (fields.isEmpty()) return exists(schema, schema.idFrom(record));
+         StringBuilder sql = new StringBuilder("UPDATE ").append(dialect.quote(schema.name())).append(" SET ");
+         for (int i = 0; i < fields.size(); i++) {
+             if (i != 0) sql.append(", ");
+             sql.append(dialect.quote(fields.get(i))).append(" = ?");
+         }
+-        sql.append(" WHERE ").append(dialect.quote(schema.idField())).append(" = ?");
++        sql.append(" WHERE ").append(schema.idFields().stream()
++                .map(field -> dialect.quote(field) + " = ?")
++                .collect(java.util.stream.Collectors.joining(" AND ")));
+         List<Object> values = new ArrayList<>();
+         List<FieldType> types = new ArrayList<>();
+         for (String field : fields) {
+             values.add(record.get(field));
+             types.add(schema.field(field).type());
+         }
+-        values.add(record.get(schema.idField()));
+-        types.add(schema.field(schema.idField()).type());
++        for (String key : schema.idFields()) {
++            values.add(record.get(key));
++            types.add(schema.field(key).type());
++        }
+         int changed = execute(sql.toString(), values.toArray(), types.toArray(FieldType[]::new));
+         // MySQL may report zero affected rows when the update reassigns equal values.
+-        return changed > 0 || exists(schema, record.get(schema.idField()));
++        return changed > 0 || exists(schema, schema.idFrom(record));
+     }
+ 
+     @Override
+     public boolean deleteById(CollectionDefinition schema, Object id) {
+-        return execute("DELETE FROM " + dialect.quote(schema.name()) + " WHERE "
+-                        + dialect.quote(schema.idField()) + " = ?", new Object[]{id},
+-                new FieldType[]{schema.field(schema.idField()).type()}) > 0;
++        SqlQuery.Predicate predicate = SqlQuery.keyPredicate(dialect, schema, id);
++        return execute("DELETE FROM " + dialect.quote(schema.name()) + predicate.sql(),
++                predicate.parameters(), predicate.types()) > 0;
+     }
+ 
+     @Override
+     public boolean increment(CollectionDefinition schema, Object id, String field, long amount) {
+         requireInteger(schema, field);
++        SqlQuery.Predicate key = SqlQuery.keyPredicate(dialect, schema, id);
+         String column = dialect.quote(field);
+         String sql = "UPDATE " + dialect.quote(schema.name()) + " SET " + column
+-                + " = " + column + " + ? WHERE " + dialect.quote(schema.idField())
+-                + " = ? AND " + column + " IS NOT NULL";
+-        List<Object> parameters = new ArrayList<>(List.of(amount, id));
+-        List<FieldType> parameterTypes = new ArrayList<>(List.of(FieldType.LONG,
+-                schema.field(schema.idField()).type()));
++                + " = " + column + " + ?" + key.sql() + " AND " + column + " IS NOT NULL";
++        List<Object> parameters = new ArrayList<>();
++        List<FieldType> types = new ArrayList<>();
++        parameters.add(amount);
++        types.add(FieldType.LONG);
++        parameters.addAll(java.util.Arrays.asList(key.parameters()));
++        types.addAll(java.util.Arrays.asList(key.types()));
+         if (amount > 0) {
+             sql += " AND " + column + " <= ?";
+             parameters.add(Long.MAX_VALUE - amount);
+-            parameterTypes.add(FieldType.LONG);
++            types.add(FieldType.LONG);
+         } else if (amount < 0) {
+             sql += " AND " + column + " >= ?";
+             parameters.add(Long.MIN_VALUE - amount);
+-            parameterTypes.add(FieldType.LONG);
++            types.add(FieldType.LONG);
++        }
++        return execute(sql, parameters.toArray(), types.toArray(FieldType[]::new)) > 0;
++    }
++
++    /** Applies one bounds-checked numeric mutation with the key and range in SQL WHERE. */
++    @Override
++    public boolean incrementBounded(CollectionDefinition schema, Object id, String field,
++                                    long delta, long minimum, long maximum) {
++        requireInteger(schema, field);
++        if (minimum > maximum || delta == Long.MIN_VALUE || delta == Long.MAX_VALUE) {
++            throw new IllegalArgumentException("Invalid bounded increment range");
+         }
+-        return execute(sql, parameters.toArray(), parameterTypes.toArray(FieldType[]::new)) > 0;
++        if (minimum > Long.MAX_VALUE + Math.min(0, delta)
++                || maximum < Long.MIN_VALUE + Math.max(0, delta)) {
++            throw new IllegalArgumentException("Bounded increment would overflow");
++        }
++        long minBefore = Math.max(minimum, Math.subtractExact(minimum, delta));
++        long maxBefore = Math.min(maximum, Math.subtractExact(maximum, delta));
++        if (minBefore > maxBefore) return false;
++        SqlQuery.Predicate key = SqlQuery.keyPredicate(dialect, schema, id);
++        List<Object> args = new ArrayList<>();
++        List<FieldType> types = new ArrayList<>();
++        args.add(delta);
++        types.add(FieldType.LONG);
++        args.addAll(java.util.Arrays.asList(key.parameters()));
++        types.addAll(java.util.Arrays.asList(key.types()));
++        args.add(minBefore);
++        args.add(maxBefore);
++        types.add(FieldType.LONG);
++        types.add(FieldType.LONG);
++        String column = dialect.quote(field);
++        String sql = "UPDATE " + dialect.quote(schema.name()) + " SET " + column + " = " + column
++                + " + ?" + key.sql() + " AND " + column + " >= ? AND " + column + " <= ?";
++        return execute(sql, args.toArray(), types.toArray(FieldType[]::new)) == 1;
+     }
+ 
+     @Override
+     public boolean decrementIfEnough(CollectionDefinition schema, Object id, String field, long amount) {
+         requireInteger(schema, field);
+         if (amount < 0) throw new IllegalArgumentException("amount must not be negative");
+-        String sql = "UPDATE " + dialect.quote(schema.name()) + " SET " + dialect.quote(field)
+-                + " = " + dialect.quote(field) + " - ? WHERE " + dialect.quote(schema.idField())
+-                + " = ? AND " + dialect.quote(field) + " >= ?";
+-        return execute(sql, new Object[]{amount, id, amount},
+-                new FieldType[]{FieldType.LONG, schema.field(schema.idField()).type(), FieldType.LONG}) > 0;
++        SqlQuery.Predicate key = SqlQuery.keyPredicate(dialect, schema, id);
++        List<Object> parameters = new ArrayList<>();
++        parameters.add(amount);
++        parameters.addAll(java.util.Arrays.asList(key.parameters()));
++        parameters.add(amount);
++        List<FieldType> types = new ArrayList<>();
++        types.add(FieldType.LONG);
++        types.addAll(java.util.Arrays.asList(key.types()));
++        types.add(FieldType.LONG);
++        String column = dialect.quote(field);
++        return execute("UPDATE " + dialect.quote(schema.name()) + " SET " + column
++                + " = " + column + " - ?" + key.sql() + " AND " + column + " >= ?",
++                parameters.toArray(), types.toArray(FieldType[]::new)) > 0;
+     }
+ 
+     @Override
+     public boolean compareAndSet(CollectionDefinition schema, Object id, String field, long expected, long updated) {
+         requireInteger(schema, field);
+-        String sql = "UPDATE " + dialect.quote(schema.name()) + " SET " + dialect.quote(field)
+-                + " = ? WHERE " + dialect.quote(schema.idField()) + " = ? AND " + dialect.quote(field)
+-                + " = ?";
+-        return execute(sql, new Object[]{updated, id, expected},
+-                new FieldType[]{FieldType.LONG, schema.field(schema.idField()).type(), FieldType.LONG}) > 0;
++        SqlQuery.Predicate key = SqlQuery.keyPredicate(dialect, schema, id);
++        List<Object> parameters = new ArrayList<>();
++        parameters.add(updated);
++        parameters.addAll(java.util.Arrays.asList(key.parameters()));
++        parameters.add(expected);
++        List<FieldType> types = new ArrayList<>();
++        types.add(FieldType.LONG);
++        types.addAll(java.util.Arrays.asList(key.types()));
++        types.add(FieldType.LONG);
++        return execute("UPDATE " + dialect.quote(schema.name()) + " SET " + dialect.quote(field)
++                + " = ?" + key.sql() + " AND " + dialect.quote(field) + " = ?",
++                parameters.toArray(), types.toArray(FieldType[]::new)) > 0;
+     }
+ 
+     /** Executes a fully bound conditional update, preserving the caller's transaction. */
+@@ -218,7 +273,7 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
+         SqlQuery.Predicate predicate = SqlQuery.predicate(dialect, schema, query);
+         List<String> columns = List.copyOf(changes.keySet());
+         for (String name : columns) {
+-            if (name.equals(schema.idField())) throw new IllegalArgumentException("Cannot update identifier");
++            if (schema.isIdField(name)) throw new IllegalArgumentException("Cannot update identifier");
+             schema.validateValue(schema.field(name), changes.get(name));
+         }
+         StringBuilder sql = new StringBuilder("UPDATE ").append(dialect.quote(schema.name()))
+@@ -265,7 +320,7 @@ final class JdbcWriteSession extends JdbcReadSession implements WriteSession {
+ 
+     private void requireInteger(CollectionDefinition schema, String field) {
+         FieldType type = schema.field(field).type();
+-        if (field.equals(schema.idField()) || (type != FieldType.LONG)) {
++        if (schema.isIdField(field) || (type != FieldType.LONG && type != FieldType.INTEGER)) {
+             throw new IllegalArgumentException("Atomic integer operations require a mutable integer field");
+         }
+     }
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/jdbc/SqlDialect.java b/Database/src/main/java/org/broken/arrow/library/database/jdbc/SqlDialect.java
+index ec25e18..80271eb 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/jdbc/SqlDialect.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/jdbc/SqlDialect.java
+@@ -11,6 +11,7 @@ import org.broken.arrow.library.database.schema.Identifiers;
+ /** Centralizes SQL grammar differences; portable code does not inspect the database type. */
+ public final class SqlDialect {
+     private final DatabaseKind kind;
++    private final boolean postgresUnquotedIdentifiers;
+ 
+     /**
+      * Binds the dialect to a supported JDBC database.
+@@ -18,8 +19,14 @@ public final class SqlDialect {
+      * @param kind requested database engine
+      */
+     public SqlDialect(DatabaseKind kind) {
++        this(kind, false);
++    }
++
++    /** Allows one client to target an established PostgreSQL schema created without quotes. */
++    public SqlDialect(DatabaseKind kind, boolean postgresUnquotedIdentifiers) {
+         if (!kind.isSql()) throw new IllegalArgumentException("MongoDB is not a SQL dialect");
+         this.kind = kind;
++        this.postgresUnquotedIdentifiers = postgresUnquotedIdentifiers;
+     }
+ 
+     /**
+@@ -30,7 +37,9 @@ public final class SqlDialect {
+      */
+     public String quote(String identifier) {
+         char character = kind == DatabaseKind.MYSQL || kind == DatabaseKind.MARIADB ? '`' : '"';
+-        return character + Identifiers.require(identifier) + character;
++        String safe = Identifiers.require(identifier);
++        return character + (kind == DatabaseKind.POSTGRESQL && postgresUnquotedIdentifiers
++                ? safe.toLowerCase(java.util.Locale.ROOT) : safe) + character;
+     }
+ 
+     /**
+@@ -59,11 +68,11 @@ public final class SqlDialect {
+             // H2 uses MERGE, not PostgreSQL's INSERT ... ON CONFLICT syntax.
+             return "MERGE INTO " + quote(schema.name()) + " ("
+                     + fields.stream().map(this::quote).collect(Collectors.joining(", ")) + ") KEY ("
+-                    + quote(schema.idField()) + ") VALUES ("
++                    + schema.idFields().stream().map(this::quote).collect(Collectors.joining(", ")) + ") VALUES ("
+                     + fields.stream().map(unused -> "?").collect(Collectors.joining(", ")) + ")";
+         }
+         String sql = insert(schema.name(), fields);
+-        List<String> mutable = fields.stream().filter(f -> !f.equals(schema.idField())).toList();
++        List<String> mutable = fields.stream().filter(f -> !schema.isIdField(f)).toList();
+         if (kind == DatabaseKind.MYSQL || kind == DatabaseKind.MARIADB) {
+             if (mutable.isEmpty()) {
+                 return sql + " ON DUPLICATE KEY UPDATE " + quote(schema.idField())
+@@ -74,7 +83,7 @@ public final class SqlDialect {
+                     .map(field -> quote(field) + " = ?")
+                     .collect(Collectors.joining(", "));
+         }
+-        String conflict = " ON CONFLICT (" + quote(schema.idField()) + ") ";
++        String conflict = " ON CONFLICT (" + schema.idFields().stream().map(this::quote).collect(Collectors.joining(", ")) + ") ";
+         if (mutable.isEmpty()) return sql + conflict + "DO NOTHING";
+         return sql + conflict + "DO UPDATE SET " + mutable.stream()
+                 .map(field -> quote(field) + " = excluded." + quote(field))
+@@ -91,12 +100,13 @@ public final class SqlDialect {
+         return "CREATE TABLE IF NOT EXISTS " + quote(schema.name()) + " ("
+                 + schema.fields().stream().map(field -> {
+                     String column = quote(field.name()) + " "
+-                            + sqlType(field.type(), field.name().equals(schema.idField()),
++                            + sqlType(field.type(), schema.isIdField(field.name()),
+                                     schema.indexes().stream().anyMatch(index -> index.columns().contains(field.name())));
+-                    if (!field.nullable() || field.name().equals(schema.idField())) column += " NOT NULL";
+-                    if (field.name().equals(schema.idField())) column += " PRIMARY KEY";
++                    if (!field.nullable() || schema.isIdField(field.name())) column += " NOT NULL";
++
+                     return column;
+-                }).collect(Collectors.joining(", ")) + ")";
++                }).collect(Collectors.joining(", ")) + ", PRIMARY KEY ("
++                + schema.idFields().stream().map(this::quote).collect(Collectors.joining(", ")) + "))";
+     }
+ 
+     /**
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/jdbc/SqlQuery.java b/Database/src/main/java/org/broken/arrow/library/database/jdbc/SqlQuery.java
+index 4de4cd0..432862f 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/jdbc/SqlQuery.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/jdbc/SqlQuery.java
+@@ -33,8 +33,9 @@ final class SqlQuery {
+             sql.append(" ORDER BY ").append(dialect.quote(query.orderBy() == null
+                     ? schema.idField() : query.orderBy()))
+                     .append(query.descending() ? " DESC" : " ASC");
+-            if (query.orderBy() != null && !query.orderBy().equals(schema.idField())) {
+-                sql.append(", ").append(dialect.quote(schema.idField()))
++            for (String key : schema.idFields()) {
++                if (key.equals(query.orderBy() == null ? schema.idField() : query.orderBy())) continue;
++                sql.append(", ").append(dialect.quote(key))
+                         .append(query.descending() ? " DESC" : " ASC");
+             }
+             sql.append(" LIMIT ? OFFSET ?");
+@@ -46,6 +47,17 @@ final class SqlQuery {
+         return new Compiled(sql.toString(), parameters.toArray(), types.toArray(FieldType[]::new));
+     }
+ 
++    /** Builds an identifier-only predicate with one bound parameter per key component. */
++    static Predicate keyPredicate(SqlDialect dialect, CollectionDefinition schema, Object id) {
++        var values = schema.keyValues(id);
++        String where = " WHERE " + schema.idFields().stream()
++                .map(field -> dialect.quote(field) + " = ?")
++                .collect(java.util.stream.Collectors.joining(" AND "));
++        var types = schema.idFields().stream().map(field -> schema.field(field).type())
++                .toArray(FieldType[]::new);
++        return new Predicate(where, values.toArray(), types);
++    }
++
+     /** An already validated, prepared WHERE clause reusable in SELECT and UPDATE statements. */
+     record Predicate(String sql, Object[] parameters, FieldType[] types) { }
+ 
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/mongo/MongoProvider.java b/Database/src/main/java/org/broken/arrow/library/database/mongo/MongoProvider.java
+index 09b3bdd..f7c0b41 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/mongo/MongoProvider.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/mongo/MongoProvider.java
+@@ -132,6 +132,9 @@ public final class MongoProvider implements DatabaseProvider {
+     @Override
+     public void createIfAbsent(CollectionDefinition schema) {
+         Objects.requireNonNull(schema, "schema");
++        if (schema.idFields().size() != 1) {
++            throw new UnsupportedOperationException("Composite keys are not supported by the MongoDB provider");
++        }
+         try {
+             boolean exists = false;
+             for (String name : database.listCollectionNames()) {
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/mongo/MongoSession.java b/Database/src/main/java/org/broken/arrow/library/database/mongo/MongoSession.java
+index cf8dc62..46a18c6 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/mongo/MongoSession.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/mongo/MongoSession.java
+@@ -234,6 +234,26 @@ final class MongoSession implements WriteSession {
+         return result.getMatchedCount() > 0;
+     }
+ 
++    /** Executes a bounds-checked single-document increment atomically. */
++    @Override
++    public boolean incrementBounded(CollectionDefinition schema, Object id, String field,
++                                    long delta, long minimum, long maximum) {
++        beforeMutation();
++        requireInteger(schema, field);
++        if (minimum > maximum || delta == Long.MIN_VALUE || delta == Long.MAX_VALUE) {
++            throw new IllegalArgumentException("Invalid bounded increment range");
++        }
++        long minBefore = Math.max(minimum, Math.subtractExact(minimum, delta));
++        long maxBefore = Math.min(maximum, Math.subtractExact(maximum, delta));
++        if (minBefore > maxBefore) return false;
++        Bson predicate = Filters.and(Filters.eq("_id", MongoValues.id(schema, id)),
++                Filters.gte(field, minBefore), Filters.lte(field, maxBefore));
++        UpdateResult result = transaction == null
++                ? collection(schema).updateOne(predicate, Updates.inc(field, delta))
++                : collection(schema).updateOne(transaction, predicate, Updates.inc(field, delta));
++        return result.getMatchedCount() == 1;
++    }
++
+     @Override
+     public boolean decrementIfEnough(CollectionDefinition schema, Object id, String field, long amount) {
+         beforeMutation();
+@@ -308,7 +328,7 @@ final class MongoSession implements WriteSession {
+ 
+     private static void requireInteger(CollectionDefinition schema, String field) {
+         FieldType type = schema.field(field).type();
+-        if (field.equals(schema.idField()) || (type != FieldType.LONG)) {
++        if (schema.isIdField(field) || (type != FieldType.LONG && type != FieldType.INTEGER)) {
+             throw new IllegalArgumentException("Atomic numeric operation requires a mutable integer field");
+         }
+     }
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/repository/RecordRepository.java b/Database/src/main/java/org/broken/arrow/library/database/repository/RecordRepository.java
+index d5eb850..e78f205 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/repository/RecordRepository.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/repository/RecordRepository.java
+@@ -487,7 +487,7 @@ public final class RecordRepository<T, ID> {
+     private void checkModel(T model, Map<String, Object> values) {
+         Objects.requireNonNull(values, "encoded values");
+         schema().validateValues(values, true);
+-        if (!Objects.equals(codec.id(model), values.get(schema().idField()))) {
++        if (!Objects.equals(codec.id(model), schema().idFrom(values))) {
+             throw new IllegalArgumentException("Record identifier does not match codec identifier");
+         }
+     }
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/schema/CollectionDefinition.java b/Database/src/main/java/org/broken/arrow/library/database/schema/CollectionDefinition.java
+index e3c0452..bdae24b 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/schema/CollectionDefinition.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/schema/CollectionDefinition.java
+@@ -50,12 +50,14 @@ public final class CollectionDefinition {
+ 
+     private final String name;
+     private final String idField;
++    private final List<String> idFields;
+     private final List<Field> fields;
+     private final List<Index> indexes;
+ 
+-    private CollectionDefinition(String name, String idField, List<Field> fields, List<Index> indexes) {
++    private CollectionDefinition(String name, List<String> idFields, List<Field> fields, List<Index> indexes) {
+         this.name = name;
+-        this.idField = idField;
++        this.idFields = List.copyOf(idFields);
++        this.idField = idFields.getFirst();
+         this.fields = List.copyOf(fields);
+         this.indexes = List.copyOf(indexes);
+     }
+@@ -75,6 +77,27 @@ public final class CollectionDefinition {
+         return new Builder(Identifiers.require(name), Identifiers.require(idField), idType);
+     }
+ 
++    /**
++     * Creates a schema whose identity consists of multiple required scalar fields.
++     * The first component remains the stable default sort field.
++     */
++    public static Builder namedComposite(String name, java.util.Map<String, FieldType> keys) {
++        if (keys.size() < 2) throw new IllegalArgumentException("Composite keys require two or more fields");
++        var entries = new java.util.LinkedHashMap<>(keys);
++        for (FieldType type : entries.values()) {
++            if (type == FieldType.JSON || type == FieldType.BYTES || type == FieldType.LONG_TEXT) {
++                throw new IllegalArgumentException("Composite keys require scalar bounded fields");
++            }
++        }
++        var builder = new Builder(Identifiers.require(name), entries.keySet().iterator().next(),
++                entries.values().iterator().next());
++        for (var entry : entries.entrySet()) {
++            if (!entry.getKey().equals(builder.idField)) builder.field(entry.getKey(), entry.getValue(), false);
++        }
++        builder.primaryKeys = List.copyOf(entries.keySet());
++        return builder;
++    }
++
+     /**
+      * Returns the SQL table or MongoDB collection name.
+      *
+@@ -89,6 +112,33 @@ public final class CollectionDefinition {
+      */
+     public String idField() { return idField; }
+ 
++    /** Returns all declared primary key fields in their binding order. */
++    public List<String> idFields() { return idFields; }
++
++    /** Returns true for any component belonging to the primary key. */
++    public boolean isIdField(String field) { return idFields.contains(field); }
++
++    /** Extracts a schema-validated key from a full record map. */
++    public Object idFrom(java.util.Map<String, ?> values) {
++        if (idFields.size() == 1) return values.get(idField);
++        return new CompositeKey(idFields.stream().map(values::get).toList());
++    }
++
++    /** Validates a logical key and returns its ordered values. */
++    public List<Object> keyValues(Object id) {
++        if (idFields.size() == 1) {
++            validateValue(field(idField), Objects.requireNonNull(id, "id"));
++            return List.of(id);
++        }
++        if (!(id instanceof CompositeKey key) || key.values().size() != idFields.size()) {
++            throw new IllegalArgumentException("Expected a composite key with " + idFields.size() + " components");
++        }
++        for (int i = 0; i < idFields.size(); i++) {
++            validateValue(field(idFields.get(i)), key.values().get(i));
++        }
++        return key.values();
++    }
++
+     /**
+      * Returns the immutable field declarations.
+      *
+@@ -128,8 +178,10 @@ public final class CollectionDefinition {
+             Field field = field(entry.getKey());
+             validateValue(field, entry.getValue());
+         }
+-        if (!values.containsKey(idField) || values.get(idField) == null) {
+-            throw new IllegalArgumentException("Missing primary key: " + idField);
++        for (String key : idFields) {
++            if (!values.containsKey(key) || values.get(key) == null) {
++                throw new IllegalArgumentException("Missing primary key: " + key);
++            }
+         }
+         if (requireAll) {
+             for (Field field : fields) {
+@@ -174,7 +226,8 @@ public final class CollectionDefinition {
+         }
+         // MySQL/MariaDB require a bounded VARCHAR for portable string indexes.
+         if (field.type() == FieldType.STRING && value instanceof String text
+-                && indexes.stream().anyMatch(index -> index.columns().contains(field.name()))
++                && (isIdField(field.name()) || indexes.stream()
++                .anyMatch(index -> index.columns().contains(field.name())))
+                 && text.length() > 191) {
+             throw new IllegalArgumentException("Indexed string exceeds 191 characters: " + field.name());
+         }
+@@ -192,6 +245,7 @@ public final class CollectionDefinition {
+     public static final class Builder {
+         private final String name;
+         private final String idField;
++        private List<String> primaryKeys;
+         private final List<Field> fields = new ArrayList<>();
+         private final Set<String> names = new HashSet<>();
+         private final List<Index> indexes = new ArrayList<>();
+@@ -200,6 +254,7 @@ public final class CollectionDefinition {
+         private Builder(String name, String idField, FieldType idType) {
+             this.name = name;
+             this.idField = idField;
++            this.primaryKeys = List.of(idField);
+             field(idField, idType, false);
+         }
+ 
+@@ -241,13 +296,10 @@ public final class CollectionDefinition {
+          * @return validated immutable result of the builder
+          */
+         public CollectionDefinition build() {
+-            CollectionDefinition snapshot = new CollectionDefinition(name, idField, fields, indexes);
++            CollectionDefinition snapshot = new CollectionDefinition(name, primaryKeys, fields, indexes);
+             for (Index index : indexes) {
+                 for (String column : index.columns()) {
+                     Field field = snapshot.field(column);
+-                    if (index.unique() && field.nullable()) {
+-                        throw new IllegalArgumentException("Portable unique indexes cannot contain nullable columns: " + column);
+-                    }
+                     if (field.type() == FieldType.JSON || field.type() == FieldType.BYTES
+                             || field.type() == FieldType.LONG_TEXT) {
+                         throw new IllegalArgumentException("Structured and binary fields cannot be indexed portably: " + column);
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/schema/CompositeKey.java b/Database/src/main/java/org/broken/arrow/library/database/schema/CompositeKey.java
+new file mode 100644
+index 0000000..0bb6f7b
+--- /dev/null
++++ b/Database/src/main/java/org/broken/arrow/library/database/schema/CompositeKey.java
+@@ -0,0 +1,18 @@
++package org.broken.arrow.library.database.schema;
++
++import java.util.List;
++import java.util.Objects;
++
++/** Immutable ordered identifier for a schema with a composite primary key. */
++public record CompositeKey(List<Object> values) {
++    /** Checks that all components are present and non-null. */
++    public CompositeKey {
++        values = List.copyOf(Objects.requireNonNull(values, "values"));
++        if (values.isEmpty()) throw new IllegalArgumentException("Composite key cannot be empty");
++    }
++
++    /** Creates a detached key in declaration order. */
++    public static CompositeKey of(Object... values) {
++        return new CompositeKey(List.of(values));
++    }
++}
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/schema/StoredCollection.java b/Database/src/main/java/org/broken/arrow/library/database/schema/StoredCollection.java
+index 0341556..bd8b46c 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/schema/StoredCollection.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/schema/StoredCollection.java
+@@ -29,4 +29,7 @@ public @interface StoredCollection {
+      * @return string representation of the requested value
+      */
+     String idField() default "id";
++
++    /** Optional ordered record component names forming a composite primary key. */
++    String[] idFields() default {};
+ }
+diff --git a/Database/src/main/java/org/broken/arrow/library/database/session/WriteSession.java b/Database/src/main/java/org/broken/arrow/library/database/session/WriteSession.java
+index e8ba8bd..50300c4 100644
+--- a/Database/src/main/java/org/broken/arrow/library/database/session/WriteSession.java
++++ b/Database/src/main/java/org/broken/arrow/library/database/session/WriteSession.java
+@@ -52,6 +52,14 @@ public interface WriteSession extends ReadSession {
+      */
+     boolean increment(CollectionDefinition schema, Object id, String field, long amount);
+ 
++    /**
++     * Applies one signed delta if the current and resulting values both remain
++     * within an inclusive safe range. The check and mutation are one provider
++     * operation; it never authorizes spending from a previous read snapshot.
++     */
++    boolean incrementBounded(CollectionDefinition schema, Object id, String field,
++                             long delta, long minimum, long maximum);
++
+     /**
+      * Atomically subtracts a non-negative amount only if sufficient value remains.
+      *
+diff --git a/Database/src/test/java/org/broken/arrow/library/database/CompositeKeyRecordTest.java b/Database/src/test/java/org/broken/arrow/library/database/CompositeKeyRecordTest.java
+new file mode 100644
+index 0000000..b7118ff
+--- /dev/null
++++ b/Database/src/test/java/org/broken/arrow/library/database/CompositeKeyRecordTest.java
+@@ -0,0 +1,81 @@
++package org.broken.arrow.library.database;
++
++import org.broken.arrow.library.database.api.DatabaseManager;
++import org.broken.arrow.library.database.config.DatabaseConfiguration;
++import org.broken.arrow.library.database.config.DatabaseKind;
++import org.broken.arrow.library.database.jdbc.SqlDialect;
++import org.broken.arrow.library.database.schema.CompositeKey;
++import org.broken.arrow.library.database.schema.StoredCollection;
++import org.broken.arrow.library.database.schema.StoredField;
++import org.broken.arrow.library.database.schema.StoredIndex;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++
++import java.nio.file.Path;
++import java.util.List;
++import java.util.UUID;
++
++import static org.junit.jupiter.api.Assertions.*;
++
++/** Integration tests for compound identities and integer-safe conditional mutations. */
++final class CompositeKeyRecordTest {
++    @TempDir Path directory;
++
++    @StoredCollection(value = "compound_balances", idFields = {"player", "kind"})
++    @StoredIndex(name = "idx_compound_kind", columns = {"Kind"})
++    private record Balance(@StoredField(name = "Player") String player,
++                           @StoredField(name = "Kind") String kind,
++                           @StoredField(name = "Amount") int amount,
++                           @StoredField(name = "Updated") long updated) { }
++
++    /** Exercises real JDBC providers without relying on read-modify-write snapshots. */
++    @Test
++    void rejectsOverdraftAndOverflowForCompositeIntegerKeys() {
++        for (DatabaseKind kind : List.of(DatabaseKind.H2, DatabaseKind.SQLITE)) {
++            String url = kind == DatabaseKind.SQLITE
++                    ? "jdbc:sqlite:" + directory.resolve("compound_" + UUID.randomUUID() + ".db")
++                    : "jdbc:h2:mem:compound_" + UUID.randomUUID().toString().replace('-', '_')
++                      + ";DB_CLOSE_DELAY=-1";
++            DatabaseConfiguration configuration = DatabaseConfiguration.forKind(kind, url)
++                    .poolSize(1).workers(2, 64).build();
++            try (DatabaseManager manager = DatabaseManager.open(configuration)) {
++                var repository = manager.<Balance, CompositeKey>register(Balance.class);
++                manager.initializeSchemasAsync().join();
++                CompositeKey id = CompositeKey.of("player-1", "crate");
++                repository.insertAsync(new Balance("player-1", "crate", 9, 1L)).join();
++                assertTrue(manager.client().transaction(session ->
++                        session.incrementBounded(repository.schema(), id, "Amount", -4, 0, Integer.MAX_VALUE)));
++                assertFalse(manager.client().transaction(session ->
++                        session.incrementBounded(repository.schema(), id, "Amount", -6, 0, Integer.MAX_VALUE)));
++                assertFalse(manager.client().transaction(session ->
++                        session.incrementBounded(repository.schema(), id, "Amount", Integer.MAX_VALUE, 0, Integer.MAX_VALUE)));
++                assertEquals(5, repository.findByIdAsync(id).join().orElseThrow().amount());
++                assertTrue(manager.client().transaction(session ->
++                        session.compareAndSet(repository.schema(), id, "Amount", 5, 7)));
++                assertFalse(manager.client().transaction(session ->
++                        session.compareAndSet(repository.schema(), id, "Amount", 5, 8)));
++                assertEquals(7, repository.findByIdAsync(id).join().orElseThrow().amount());
++                assertFalse(repository.insertIfAbsentAsync(new Balance("player-1", "crate", 99, 2L)).join());
++                assertTrue(repository.insertIfAbsentAsync(new Balance("player-1", "other", 3, 3L)).join());
++                assertEquals(3, repository.findByIdAsync(CompositeKey.of("player-1", "other"))
++                        .join().orElseThrow().amount());
++            }
++        }
++    }
++
++    /** Ensures every dialect uses the full key for UPSERT conflict resolution. */
++    @Test
++    void rendersAllCompositeKeyColumns() {
++        var schema = org.broken.arrow.library.database.schema.CollectionDefinition.namedComposite("compound_balances",
++                        java.util.Map.of("Player", org.broken.arrow.library.database.schema.FieldType.STRING,
++                                "Kind", org.broken.arrow.library.database.schema.FieldType.STRING))
++                .field("Amount", org.broken.arrow.library.database.schema.FieldType.INTEGER, false).build();
++        for (DatabaseKind kind : List.of(DatabaseKind.SQLITE, DatabaseKind.POSTGRESQL, DatabaseKind.H2)) {
++            SqlDialect dialect = new SqlDialect(kind);
++            String ddl = dialect.createTable(schema);
++            assertTrue(ddl.contains("PRIMARY KEY"));
++            assertTrue(ddl.contains("Player"));
++            assertTrue(ddl.contains("Kind"));
++        }
++    }
++}
+diff --git a/Database/src/test/java/org/broken/arrow/library/database/DatabaseAdvancedOperationsTest.java b/Database/src/test/java/org/broken/arrow/library/database/DatabaseAdvancedOperationsTest.java
+index 7100f14..d2a6da0 100644
+--- a/Database/src/test/java/org/broken/arrow/library/database/DatabaseAdvancedOperationsTest.java
++++ b/Database/src/test/java/org/broken/arrow/library/database/DatabaseAdvancedOperationsTest.java
+@@ -82,10 +82,10 @@ final class DatabaseAdvancedOperationsTest {
+                 () -> CollectionDefinition.named("data", "id", FieldType.UUID)
+                         .field("json", FieldType.JSON, false)
+                         .index("invalid_json_index", false, "json").build());
+-        assertThrows(IllegalArgumentException.class,
+-                () -> CollectionDefinition.named("data", "id", FieldType.UUID)
+-                        .field("optional", FieldType.STRING, true)
+-                        .index("invalid_nullable_unique", true, "optional").build());
++        // SQL UNIQUE indexes allow multiple NULLs, required for nullable active escrow locks.
++        assertDoesNotThrow(() -> CollectionDefinition.named("data", "id", FieldType.UUID)
++                .field("optional", FieldType.STRING, true)
++                .index("idx_nullable_unique", true, "optional").build());
+         assertThrows(IllegalArgumentException.class,
+                 () -> CollectionDefinition.named("data", "id", FieldType.UUID)
+                         .field("value", FieldType.LONG, false)

@@ -19,6 +19,7 @@ public final class DatabaseConfiguration {
     private final Duration shutdownTimeout;
     private final int sqliteBusyTimeoutMillis;
     private final boolean sqliteWal;
+    private final boolean postgresUnquotedIdentifiers;
     private final SqliteSynchronousMode sqliteSynchronousMode;
 
     private DatabaseConfiguration(Builder builder) {
@@ -36,6 +37,7 @@ public final class DatabaseConfiguration {
         shutdownTimeout = builder.shutdownTimeout;
         sqliteBusyTimeoutMillis = builder.sqliteBusyTimeoutMillis;
         sqliteWal = builder.sqliteWal;
+        postgresUnquotedIdentifiers = builder.postgresUnquotedIdentifiers;
         sqliteSynchronousMode = Objects.requireNonNull(builder.sqliteSynchronousMode, "sqliteSynchronousMode");
         if (poolSize < 1 || poolSize > 128) throw new IllegalArgumentException("poolSize out of range");
         if (minimumIdle < 0 || minimumIdle > poolSize) throw new IllegalArgumentException("minimumIdle out of range");
@@ -163,6 +165,13 @@ public final class DatabaseConfiguration {
     public boolean sqliteWal() { return sqliteWal; }
 
     /**
+     * Returns whether PostgreSQL should use lowercase identifiers for existing unquoted schemas.
+     *
+     * @return true when PostgreSQL identifier names should be folded to lowercase
+     */
+    public boolean postgresUnquotedIdentifiers() { return postgresUnquotedIdentifiers; }
+
+    /**
      * Returns the allowlisted SQLite synchronous durability policy.
      *
      * @return selected FULL or NORMAL synchronization mode
@@ -192,6 +201,7 @@ public final class DatabaseConfiguration {
         private Duration shutdownTimeout = Duration.ofSeconds(15);
         private int sqliteBusyTimeoutMillis = 5_000;
         private boolean sqliteWal = true;
+        private boolean postgresUnquotedIdentifiers;
         private SqliteSynchronousMode sqliteSynchronousMode = SqliteSynchronousMode.FULL;
 
         private Builder(DatabaseKind kind, String address) {
@@ -279,6 +289,17 @@ public final class DatabaseConfiguration {
          */
         public Builder shutdownTimeout(Duration value) {
             shutdownTimeout = Objects.requireNonNull(value, "value");
+            return this;
+        }
+
+        /**
+         * Configures PostgreSQL identifier folding for tables created without quoted names.
+         *
+         * @param enabled true to address existing PostgreSQL identifiers in lowercase
+         * @return this builder for further configuration
+         */
+        public Builder postgresUnquotedIdentifiers(boolean enabled) {
+            postgresUnquotedIdentifiers = enabled;
             return this;
         }
 

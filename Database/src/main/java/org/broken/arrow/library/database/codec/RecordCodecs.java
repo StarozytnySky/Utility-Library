@@ -42,6 +42,23 @@ public final class RecordCodecs {
     }
 
     /**
+     * Creates a typed record codec with a composite primary key and unchanged column names.
+     *
+     * @param type Java record class
+     * @param collection SQL table or MongoDB collection name
+     * @param idFields names of the record components forming the composite primary key
+     * @return compiled reusable codec with a composite identifier
+     * @param <T> record type
+     */
+    public static <T extends Record> RecordCodec<T, org.broken.arrow.library.database.schema.CompositeKey>
+    ofComposite(Class<T> type, String collection, String... idFields) {
+        if (idFields == null || idFields.length < 2) {
+            throw new IllegalArgumentException("A composite key requires at least two components");
+        }
+        return build(type, collection, idFields, ValueCodecs.defaults());
+    }
+
+    /**
      * Derives a record codec with immutable, application-specific type mappings.
      *
      * @param type Java record class
@@ -54,15 +71,22 @@ public final class RecordCodecs {
      */
     public static <T extends Record, ID> RecordCodec<T, ID> of(
             Class<T> type, String collection, String idField, ValueCodecs valueCodecs) {
+        return build(type, collection, new String[]{idField}, valueCodecs);
+    }
+
+    private static <T extends Record, ID> RecordCodec<T, ID> build(
+            Class<T> type, String collection, String[] idFields, ValueCodecs valueCodecs) {
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(valueCodecs, "valueCodecs");
+        if (idFields.length == 0 || java.util.Set.of(idFields).size() != idFields.length) {
+            throw new IllegalArgumentException("Invalid identifier components");
+        }
         Identifiers.require(collection);
-        Identifiers.require(idField);
+        for (String idField : idFields) Identifiers.require(idField);
         if (!type.isRecord()) throw new IllegalArgumentException("Only Java records can be auto-mapped");
         RecordComponent[] components = type.getRecordComponents();
         if (components.length == 0) throw new IllegalArgumentException("Record cannot be empty");
-        int idIndex = -1;
-        String idColumn = null;
+        java.util.List<Integer> idIndexes = new java.util.ArrayList<>();
         Class<?>[] parameterTypes = new Class<?>[components.length];
         MethodHandle[] accessors = new MethodHandle[components.length];
         ValueCodecs.Adapter[] adapters = new ValueCodecs.Adapter[components.length];
@@ -87,23 +111,35 @@ public final class RecordCodecs {
                         && adapters[index].fieldType() != org.broken.arrow.library.database.schema.FieldType.STRING) {
                     throw new IllegalArgumentException("Large text requires a String field: " + component.getName());
                 }
-                if (component.getName().equals(idField)) {
+                if (java.util.Arrays.asList(idFields).contains(component.getName())) {
                     if (metadata != null && metadata.longText()) {
                         throw new IllegalArgumentException("Large text cannot be a primary key");
                     }
-                    idIndex = index;
-                    idColumn = columns[index];
+                    idIndexes.add(index);
                     if (nullable[index]) throw new IllegalArgumentException("Identifier must not be nullable");
                     if (adapters[index].fieldType() == FieldType.JSON) {
                         throw new IllegalArgumentException("Structured values cannot be primary keys");
                     }
                 }
             }
-            if (idIndex == -1) throw new IllegalArgumentException("Unknown identifier component: " + idField);
-            CollectionDefinition.Builder schema = CollectionDefinition.named(collection, idColumn,
-                    adapters[idIndex].fieldType());
+            if (idIndexes.size() != idFields.length) throw new IllegalArgumentException("Missing identifier components");
+            // Preserve the caller-declared key order instead of record component order.
+            java.util.LinkedHashMap<String, FieldType> ordered = new java.util.LinkedHashMap<>();
+            java.util.List<Integer> orderedIndexes = new java.util.ArrayList<>();
+            for (String key : idFields) {
+                for (int i = 0; i < components.length; i++) {
+                    if (components[i].getName().equals(key)) {
+                        ordered.put(columns[i], adapters[i].fieldType());
+                        orderedIndexes.add(i);
+                    }
+                }
+            }
+            CollectionDefinition.Builder schema = idFields.length == 1
+                    ? CollectionDefinition.named(collection, ordered.keySet().iterator().next(),
+                        ordered.values().iterator().next())
+                    : CollectionDefinition.namedComposite(collection, ordered);
             for (int index = 0; index < components.length; index++) {
-                if (index != idIndex) {
+                if (!orderedIndexes.contains(index)) {
                     StoredField metadata = components[index].getAnnotation(StoredField.class);
                     schema.field(columns[index], metadata != null && metadata.longText()
                             ? org.broken.arrow.library.database.schema.FieldType.LONG_TEXT
@@ -117,7 +153,7 @@ public final class RecordCodecs {
             MethodHandle creator = lookup.unreflectConstructor(constructor)
                     .asSpreader(Object[].class, components.length);
             return new GeneratedCodec<>(schema.build(), columns, nullable, adapters,
-                    accessors, creator, idIndex);
+                    accessors, creator, orderedIndexes.stream().mapToInt(Integer::intValue).toArray());
         } catch (ReflectiveOperationException failure) {
             throw new IllegalArgumentException("Record must expose an accessible canonical constructor: "
                     + type.getName(), failure);
@@ -127,7 +163,7 @@ public final class RecordCodecs {
     private record GeneratedCodec<T extends Record, ID>(
             CollectionDefinition schema, String[] fields, boolean[] nullable,
             ValueCodecs.Adapter[] adapters, MethodHandle[] getters,
-            MethodHandle constructor, int idIndex) implements RecordCodec<T, ID> {
+            MethodHandle constructor, int[] idIndexes) implements RecordCodec<T, ID> {
 
         /** Returns immutable schema metadata. */
         @Override public CollectionDefinition schema() { return schema; }
@@ -137,7 +173,10 @@ public final class RecordCodecs {
         public ID id(T model) {
             Objects.requireNonNull(model, "model");
             try {
-                return (ID) getters[idIndex].invoke(model);
+                if (idIndexes.length == 1) return (ID) getters[idIndexes[0]].invoke(model);
+                Object[] values = new Object[idIndexes.length];
+                for (int i = 0; i < idIndexes.length; i++) values[i] = getters[idIndexes[i]].invoke(model);
+                return (ID) org.broken.arrow.library.database.schema.CompositeKey.of(values);
             } catch (Throwable failure) {
                 throw new IllegalStateException("Cannot read database identifier", failure);
             }

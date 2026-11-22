@@ -53,6 +53,22 @@ public interface WriteSession extends ReadSession {
     boolean increment(CollectionDefinition schema, Object id, String field, long amount);
 
     /**
+     * Applies one signed delta if the current and resulting values both remain
+     * within an inclusive safe range. The check and mutation are one provider
+     * operation; it never authorizes spending from a previous read snapshot.
+     *
+     * @param schema definition of the target table or collection
+     * @param id stable scalar or composite primary key
+     * @param field declared numeric field to update
+     * @param delta signed amount to add atomically
+     * @param minimum smallest permitted current and resulting value (inclusive)
+     * @param maximum largest permitted current and resulting value (inclusive)
+     * @return true if the bounded update was applied, false if its conditions failed
+     */
+    boolean incrementBounded(CollectionDefinition schema, Object id, String field,
+                             long delta, long minimum, long maximum);
+
+    /**
      * Atomically subtracts a non-negative amount only if sufficient value remains.
      *
      * @param schema definition of the target table or collection
@@ -100,8 +116,8 @@ public interface WriteSession extends ReadSession {
      * @param expected required current value or number of affected rows
      */
     default void updateExactly(CollectionDefinition schema,
-            org.broken.arrow.library.database.repository.RecordQuery query,
-            Map<String, Object> changes, long expected) {
+                               org.broken.arrow.library.database.repository.RecordQuery query,
+                               Map<String, Object> changes, long expected) {
         if (expected < 0) throw new IllegalArgumentException("Expected row count must be non-negative");
         long changed = updateMatching(schema, query, changes);
         if (changed != expected) {
@@ -130,7 +146,7 @@ public interface WriteSession extends ReadSession {
      * @param expected exact number of records that must be deleted
      */
     default void deleteExactly(CollectionDefinition schema,
-            org.broken.arrow.library.database.repository.RecordQuery query, long expected) {
+                               org.broken.arrow.library.database.repository.RecordQuery query, long expected) {
         if (expected < 0) throw new IllegalArgumentException("Expected count must be non-negative");
         long affected = deleteMatching(schema, query);
         if (affected != expected) {

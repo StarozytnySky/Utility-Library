@@ -82,10 +82,10 @@ final class DatabaseAdvancedOperationsTest {
                 () -> CollectionDefinition.named("data", "id", FieldType.UUID)
                         .field("json", FieldType.JSON, false)
                         .index("invalid_json_index", false, "json").build());
-        assertThrows(IllegalArgumentException.class,
-                () -> CollectionDefinition.named("data", "id", FieldType.UUID)
-                        .field("optional", FieldType.STRING, true)
-                        .index("invalid_nullable_unique", true, "optional").build());
+        // SQL UNIQUE indexes allow multiple NULLs, required for nullable active escrow locks.
+        assertDoesNotThrow(() -> CollectionDefinition.named("data", "id", FieldType.UUID)
+                .field("optional", FieldType.STRING, true)
+                .index("idx_nullable_unique", true, "optional").build());
         assertThrows(IllegalArgumentException.class,
                 () -> CollectionDefinition.named("data", "id", FieldType.UUID)
                         .field("value", FieldType.LONG, false)

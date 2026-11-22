@@ -37,7 +37,7 @@ public final class JdbcProvider implements DatabaseProvider {
     public JdbcProvider(DatabaseConfiguration config) {
         kind = config.kind();
         if (!kind.isSql()) throw new IllegalArgumentException("JDBC provider cannot open MongoDB");
-        dialect = new SqlDialect(kind);
+        dialect = new SqlDialect(kind, config.postgresUnquotedIdentifiers());
         acquisitionTimer = new RollingOperationMonitor(config.operationLatencyWindowSeconds());
         HikariConfig hikari = new HikariConfig();
         hikari.setPoolName("Utility-Database-" + kind + "-" + Integer.toHexString(System.identityHashCode(this)));

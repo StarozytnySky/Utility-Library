@@ -234,6 +234,26 @@ final class MongoSession implements WriteSession {
         return result.getMatchedCount() > 0;
     }
 
+    /** Executes a bounds-checked single-document increment atomically. */
+    @Override
+    public boolean incrementBounded(CollectionDefinition schema, Object id, String field,
+                                    long delta, long minimum, long maximum) {
+        beforeMutation();
+        requireInteger(schema, field);
+        if (minimum > maximum || delta == Long.MIN_VALUE || delta == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("Invalid bounded increment range");
+        }
+        long minBefore = Math.max(minimum, Math.subtractExact(minimum, delta));
+        long maxBefore = Math.min(maximum, Math.subtractExact(maximum, delta));
+        if (minBefore > maxBefore) return false;
+        Bson predicate = Filters.and(Filters.eq("_id", MongoValues.id(schema, id)),
+                Filters.gte(field, minBefore), Filters.lte(field, maxBefore));
+        UpdateResult result = transaction == null
+                ? collection(schema).updateOne(predicate, Updates.inc(field, delta))
+                : collection(schema).updateOne(transaction, predicate, Updates.inc(field, delta));
+        return result.getMatchedCount() == 1;
+    }
+
     @Override
     public boolean decrementIfEnough(CollectionDefinition schema, Object id, String field, long amount) {
         beforeMutation();
@@ -308,7 +328,7 @@ final class MongoSession implements WriteSession {
 
     private static void requireInteger(CollectionDefinition schema, String field) {
         FieldType type = schema.field(field).type();
-        if (field.equals(schema.idField()) || (type != FieldType.LONG)) {
+        if (schema.isIdField(field) || (type != FieldType.LONG && type != FieldType.INTEGER)) {
             throw new IllegalArgumentException("Atomic numeric operation requires a mutable integer field");
         }
     }

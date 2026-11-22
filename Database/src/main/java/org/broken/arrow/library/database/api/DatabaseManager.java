@@ -181,7 +181,15 @@ public final class DatabaseManager implements AutoCloseable {
         if (metadata == null) {
             throw new IllegalArgumentException("Missing @StoredCollection on database record: " + type.getName());
         }
-        return register(type, metadata.value(), metadata.idField());
+        if (metadata.idFields().length == 0) {
+            return register(type, metadata.value(), metadata.idField());
+        }
+        // The annotation declares a composite ID; preserve the public generic
+        // registration API while returning the exact CompositeKey repository.
+        @SuppressWarnings("unchecked")
+        RecordRepository<T, ID> repository = (RecordRepository<T, ID>)
+                registerComposite(type, metadata.value(), metadata.idFields());
+        return repository;
     }
 
     /**
@@ -197,6 +205,20 @@ public final class DatabaseManager implements AutoCloseable {
     public <T extends Record, ID> RecordRepository<T, ID> register(
             Class<T> type, String collection, String idField) {
         return register(type, collection, idField, ValueCodecs.defaults());
+    }
+
+    /**
+     * Registers a typed record using the ordered composite primary-key fields.
+     *
+     * @param type record class used by the repository
+     * @param collection name of the database collection or SQL table
+     * @param idFields names of the record components that form the composite primary key
+     * @return repository registered with the composite-key record codec
+     * @param <T> record type
+     */
+    public <T extends Record> RecordRepository<T, org.broken.arrow.library.database.schema.CompositeKey>
+    registerComposite(Class<T> type, String collection, String... idFields) {
+        return register(type, RecordCodecs.ofComposite(type, collection, idFields));
     }
 
     /**

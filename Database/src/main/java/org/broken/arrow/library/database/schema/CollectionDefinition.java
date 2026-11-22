@@ -50,12 +50,14 @@ public final class CollectionDefinition {
 
     private final String name;
     private final String idField;
+    private final List<String> idFields;
     private final List<Field> fields;
     private final List<Index> indexes;
 
-    private CollectionDefinition(String name, String idField, List<Field> fields, List<Index> indexes) {
+    private CollectionDefinition(String name, List<String> idFields, List<Field> fields, List<Index> indexes) {
         this.name = name;
-        this.idField = idField;
+        this.idFields = List.copyOf(idFields);
+        this.idField = idFields.getFirst();
         this.fields = List.copyOf(fields);
         this.indexes = List.copyOf(indexes);
     }
@@ -76,6 +78,31 @@ public final class CollectionDefinition {
     }
 
     /**
+     * Creates a schema whose identity consists of multiple required scalar fields.
+     * The first component remains the stable default sort field.
+     *
+     * @param name validated table or collection name
+     * @param keys ordered mapping of primary-key column names to their scalar types
+     * @return builder preconfigured with the composite primary key
+     */
+    public static Builder namedComposite(String name, java.util.Map<String, FieldType> keys) {
+        if (keys.size() < 2) throw new IllegalArgumentException("Composite keys require two or more fields");
+        var entries = new java.util.LinkedHashMap<>(keys);
+        for (FieldType type : entries.values()) {
+            if (type == FieldType.JSON || type == FieldType.BYTES || type == FieldType.LONG_TEXT) {
+                throw new IllegalArgumentException("Composite keys require scalar bounded fields");
+            }
+        }
+        var builder = new Builder(Identifiers.require(name), entries.keySet().iterator().next(),
+                entries.values().iterator().next());
+        for (var entry : entries.entrySet()) {
+            if (!entry.getKey().equals(builder.idField)) builder.field(entry.getKey(), entry.getValue(), false);
+        }
+        builder.primaryKeys = List.copyOf(entries.keySet());
+        return builder;
+    }
+
+    /**
      * Returns the SQL table or MongoDB collection name.
      *
      * @return declared name of the field, index, or collection
@@ -88,6 +115,52 @@ public final class CollectionDefinition {
      * @return string representation of the requested value
      */
     public String idField() { return idField; }
+
+    /**
+     * Returns the ordered columns that form the primary key.
+     *
+     * @return immutable list of primary-key field names
+     */
+    public List<String> idFields() { return idFields; }
+
+    /**
+     * Checks whether a field is part of the primary key.
+     *
+     * @param field field name to check
+     * @return true if the field belongs to the primary key
+     */
+    public boolean isIdField(String field) { return idFields.contains(field); }
+
+    /**
+     * Extracts a primary key from the mapped record values.
+     *
+     * @param values map of column names to stored field values
+     * @return scalar key for a single-column identifier, or a composite key otherwise
+     */
+    public Object idFrom(java.util.Map<String, ?> values) {
+        if (idFields.size() == 1) return values.get(idField);
+        return new CompositeKey(idFields.stream().<Object>map(values::get).toList());
+    }
+
+    /**
+     * Validates a logical primary key and extracts its components in column order.
+     *
+     * @param id scalar key or {@link CompositeKey} to validate
+     * @return ordered key values compatible with the declared field types
+     */
+    public List<Object> keyValues(Object id) {
+        if (idFields.size() == 1) {
+            validateValue(field(idField), Objects.requireNonNull(id, "id"));
+            return List.of(id);
+        }
+        if (!(id instanceof CompositeKey key) || key.values().size() != idFields.size()) {
+            throw new IllegalArgumentException("Expected a composite key with " + idFields.size() + " components");
+        }
+        for (int i = 0; i < idFields.size(); i++) {
+            validateValue(field(idFields.get(i)), key.values().get(i));
+        }
+        return key.values();
+    }
 
     /**
      * Returns the immutable field declarations.
@@ -128,8 +201,10 @@ public final class CollectionDefinition {
             Field field = field(entry.getKey());
             validateValue(field, entry.getValue());
         }
-        if (!values.containsKey(idField) || values.get(idField) == null) {
-            throw new IllegalArgumentException("Missing primary key: " + idField);
+        for (String key : idFields) {
+            if (!values.containsKey(key) || values.get(key) == null) {
+                throw new IllegalArgumentException("Missing primary key: " + key);
+            }
         }
         if (requireAll) {
             for (Field field : fields) {
@@ -174,7 +249,8 @@ public final class CollectionDefinition {
         }
         // MySQL/MariaDB require a bounded VARCHAR for portable string indexes.
         if (field.type() == FieldType.STRING && value instanceof String text
-                && indexes.stream().anyMatch(index -> index.columns().contains(field.name()))
+                && (isIdField(field.name()) || indexes.stream()
+                .anyMatch(index -> index.columns().contains(field.name())))
                 && text.length() > 191) {
             throw new IllegalArgumentException("Indexed string exceeds 191 characters: " + field.name());
         }
@@ -192,6 +268,7 @@ public final class CollectionDefinition {
     public static final class Builder {
         private final String name;
         private final String idField;
+        private List<String> primaryKeys;
         private final List<Field> fields = new ArrayList<>();
         private final Set<String> names = new HashSet<>();
         private final List<Index> indexes = new ArrayList<>();
@@ -200,6 +277,7 @@ public final class CollectionDefinition {
         private Builder(String name, String idField, FieldType idType) {
             this.name = name;
             this.idField = idField;
+            this.primaryKeys = List.of(idField);
             field(idField, idType, false);
         }
 
@@ -241,13 +319,10 @@ public final class CollectionDefinition {
          * @return validated immutable result of the builder
          */
         public CollectionDefinition build() {
-            CollectionDefinition snapshot = new CollectionDefinition(name, idField, fields, indexes);
+            CollectionDefinition snapshot = new CollectionDefinition(name, primaryKeys, fields, indexes);
             for (Index index : indexes) {
                 for (String column : index.columns()) {
                     Field field = snapshot.field(column);
-                    if (index.unique() && field.nullable()) {
-                        throw new IllegalArgumentException("Portable unique indexes cannot contain nullable columns: " + column);
-                    }
                     if (field.type() == FieldType.JSON || field.type() == FieldType.BYTES
                             || field.type() == FieldType.LONG_TEXT) {
                         throw new IllegalArgumentException("Structured and binary fields cannot be indexed portably: " + column);

@@ -28,11 +28,10 @@ class JdbcReadSession implements ReadSession {
 
     @Override
     public Optional<Map<String, Object>> findById(CollectionDefinition schema, Object id) {
-        String sql = "SELECT * FROM " + dialect.quote(schema.name()) + " WHERE "
-                + dialect.quote(schema.idField()) + " = ?";
+        SqlQuery.Predicate predicate = SqlQuery.keyPredicate(dialect, schema, id);
+        String sql = "SELECT * FROM " + dialect.quote(schema.name()) + predicate.sql();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            JdbcValues.bind(statement, new Object[]{id},
-                    new org.broken.arrow.library.database.schema.FieldType[]{schema.field(schema.idField()).type()});
+            JdbcValues.bind(statement, predicate.parameters(), predicate.types());
             statement.setMaxRows(1);
             try (ResultSet results = statement.executeQuery()) {
                 return results.next() ? Optional.of(JdbcValues.read(results, schema)) : Optional.empty();
