@@ -78,6 +78,13 @@ final class MongoSession implements WriteSession {
         Document sorting = new Document(order, query.descending() ? -1 : 1);
         if (query.orderBy() != null && !query.orderBy().equals(schema.idField())) {
             sorting.append("_id", query.descending() ? -1 : 1);
+        } else {
+            // Always add every remaining primary-key component as a deterministic
+            // tie-breaker, including when the first key was explicitly ordered.
+            for (String key : schema.idFields()) {
+                String column = MongoValues.name(schema, key);
+                if (!sorting.containsKey(column)) sorting.append(column, query.descending() ? -1 : 1);
+            }
         }
         cursor.sort(sorting).skip(query.offset()).limit(query.limit());
         List<Map<String, Object>> rows = new ArrayList<>();
@@ -346,6 +353,24 @@ final class MongoSession implements WriteSession {
                 case LT -> Filters.lt(field, value);
                 case LTE -> Filters.lte(field, value);
             });
+        }
+        if (query.afterPrimaryKey() != null) {
+            List<Object> values = schema.keyValues(query.afterPrimaryKey());
+            List<Bson> alternatives = new ArrayList<>();
+            for (int index = 0; index < schema.idFields().size(); index++) {
+                List<Bson> prefix = new ArrayList<>();
+                for (int equal = 0; equal < index; equal++) {
+                    String field = schema.idFields().get(equal);
+                    prefix.add(Filters.eq(MongoValues.name(schema, field),
+                            MongoValues.encode(schema.field(field).type(), values.get(equal))));
+                }
+                String field = schema.idFields().get(index);
+                Object value = MongoValues.encode(schema.field(field).type(), values.get(index));
+                prefix.add(query.descending() ? Filters.lt(MongoValues.name(schema, field), value)
+                        : Filters.gt(MongoValues.name(schema, field), value));
+                alternatives.add(Filters.and(prefix));
+            }
+            predicates.add(Filters.or(alternatives));
         }
         return predicates.isEmpty() ? new Document() : Filters.and(predicates);
     }

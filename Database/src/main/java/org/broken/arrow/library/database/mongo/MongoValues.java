@@ -26,7 +26,7 @@ final class MongoValues {
      */
     static String name(CollectionDefinition schema, String field) {
         schema.field(field);
-        return schema.idField().equals(field) ? "_id" : field;
+        return schema.idFields().size() == 1 && schema.idField().equals(field) ? "_id" : field;
     }
 
     /**
@@ -121,6 +121,9 @@ final class MongoValues {
                 document.put(name(schema, field.name()), encode(field.type(), values.get(field.name())));
             }
         }
+        if (schema.idFields().size() > 1) {
+            document.put("_id", compoundId(schema, schema.keyValues(schema.idFrom(values))));
+        }
         return document;
     }
 
@@ -148,6 +151,25 @@ final class MongoValues {
      */
     static Object id(CollectionDefinition schema, Object id) {
         if (id == null) throw new IllegalArgumentException("Identifier is required");
-        return encode(schema.field(schema.idField()).type(), id);
+        if (schema.idFields().size() == 1) {
+            return encode(schema.field(schema.idField()).type(), id);
+        }
+        return compoundId(schema, schema.keyValues(id));
+    }
+
+    /**
+     * Produces one deterministic MongoDB identifier from an ordered compound key.
+     *
+     * @param schema declared collection metadata
+     * @param values validated primary-key values
+     * @return compound MongoDB identifier with stable component ordering
+     */
+    private static Document compoundId(CollectionDefinition schema, java.util.List<Object> values) {
+        Document key = new Document();
+        for (int index = 0; index < schema.idFields().size(); index++) {
+            String field = schema.idFields().get(index);
+            key.put(field, encode(schema.field(field).type(), values.get(index)));
+        }
+        return key;
     }
 }

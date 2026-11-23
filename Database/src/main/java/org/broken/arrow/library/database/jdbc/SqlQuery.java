@@ -101,6 +101,27 @@ final class SqlQuery {
                 types.add(schema.field(condition.field()).type());
             }
         }
+        if (query.afterPrimaryKey() != null) {
+            List<Object> keyValues = schema.keyValues(query.afterPrimaryKey());
+            sql.append(query.conditions().isEmpty() ? " WHERE (" : " AND (");
+            // Lexicographic keyset comparison: k1 > ? OR (k1 = ? AND k2 > ?) ...
+            // Every SQL value is bound, including the repeated equality prefix.
+            for (int fieldIndex = 0; fieldIndex < schema.idFields().size(); fieldIndex++) {
+                if (fieldIndex > 0) sql.append(" OR ");
+                sql.append('(');
+                for (int prefix = 0; prefix < fieldIndex; prefix++) {
+                    String field = schema.idFields().get(prefix);
+                    sql.append(dialect.quote(field)).append(" = ? AND ");
+                    parameters.add(keyValues.get(prefix));
+                    types.add(schema.field(field).type());
+                }
+                String field = schema.idFields().get(fieldIndex);
+                sql.append(dialect.quote(field)).append(query.descending() ? " < ?" : " > ?").append(')');
+                parameters.add(keyValues.get(fieldIndex));
+                types.add(schema.field(field).type());
+            }
+            sql.append(')');
+        }
         return new Predicate(sql.toString(), parameters.toArray(), types.toArray(FieldType[]::new));
     }
 
